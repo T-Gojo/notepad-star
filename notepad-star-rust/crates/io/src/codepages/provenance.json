@@ -1,0 +1,285 @@
+{
+  "schema": 1,
+  "reference": "PowerEditor/src/EncodingMapper.cpp",
+  "source": "Windows MultiByteToWideChar/WideCharToMultiByte API observations",
+  "policy": "Only exact reversible scalar mappings; no best-fit, default-character substitution or byte canonicalization.",
+  "format": "Little-endian u32 Unicode scalars; 0xffffffff denotes rejected mappings.",
+  "sha256": "cc08e6cae23970d63401ad39a187d9f79fee790162e942df5a3ee0887d1f7c99",
+  "pages": [
+    {
+      "id": 1250,
+      "label": "Windows-1250",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 1251,
+      "label": "Windows-1251",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 1252,
+      "label": "Windows-1252",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 1253,
+      "label": "Windows-1253",
+      "maximum_bytes": 1,
+      "reversible_mappings": 253
+    },
+    {
+      "id": 1254,
+      "label": "Windows-1254",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 1255,
+      "label": "Windows-1255",
+      "maximum_bytes": 1,
+      "reversible_mappings": 246
+    },
+    {
+      "id": 1256,
+      "label": "Windows-1256",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 1257,
+      "label": "Windows-1257",
+      "maximum_bytes": 1,
+      "reversible_mappings": 254
+    },
+    {
+      "id": 1258,
+      "label": "Windows-1258",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28591,
+      "label": "ISO 8859-1",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28592,
+      "label": "ISO 8859-2",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28593,
+      "label": "ISO 8859-3",
+      "maximum_bytes": 1,
+      "reversible_mappings": 249
+    },
+    {
+      "id": 28594,
+      "label": "ISO 8859-4",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28595,
+      "label": "ISO 8859-5",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28596,
+      "label": "ISO 8859-6",
+      "maximum_bytes": 1,
+      "reversible_mappings": 211
+    },
+    {
+      "id": 28597,
+      "label": "ISO 8859-7",
+      "maximum_bytes": 1,
+      "reversible_mappings": 250
+    },
+    {
+      "id": 28598,
+      "label": "ISO 8859-8",
+      "maximum_bytes": 1,
+      "reversible_mappings": 218
+    },
+    {
+      "id": 28599,
+      "label": "ISO 8859-9",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28603,
+      "label": "ISO 8859-13",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 28605,
+      "label": "ISO 8859-15",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 437,
+      "label": "OEM 437",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 720,
+      "label": "OEM 720",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 737,
+      "label": "OEM 737",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 775,
+      "label": "OEM 775",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 850,
+      "label": "OEM 850",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 852,
+      "label": "OEM 852",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 855,
+      "label": "OEM 855",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 857,
+      "label": "OEM 857",
+      "maximum_bytes": 1,
+      "reversible_mappings": 253
+    },
+    {
+      "id": 858,
+      "label": "OEM 858",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 860,
+      "label": "OEM 860",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 861,
+      "label": "OEM 861",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 862,
+      "label": "OEM 862",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 863,
+      "label": "OEM 863",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 865,
+      "label": "OEM 865",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 866,
+      "label": "OEM 866",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 869,
+      "label": "OEM 869",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 874,
+      "label": "TIS-620 (Windows-874)",
+      "maximum_bytes": 1,
+      "reversible_mappings": 248
+    },
+    {
+      "id": 10007,
+      "label": "Macintosh Cyrillic",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 21866,
+      "label": "KOI8-U",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 20866,
+      "label": "KOI8-R",
+      "maximum_bytes": 1,
+      "reversible_mappings": 256
+    },
+    {
+      "id": 950,
+      "label": "Big5 (Windows-950)",
+      "maximum_bytes": 2,
+      "reversible_mappings": 19839
+    },
+    {
+      "id": 936,
+      "label": "GBK (Windows-936)",
+      "maximum_bytes": 2,
+      "reversible_mappings": 24069
+    },
+    {
+      "id": 932,
+      "label": "Shift-JIS",
+      "maximum_bytes": 2,
+      "reversible_mappings": 9398
+    },
+    {
+      "id": 949,
+      "label": "Windows-949",
+      "maximum_bytes": 2,
+      "reversible_mappings": 17365
+    },
+    {
+      "id": 51949,
+      "label": "EUC-KR",
+      "maximum_bytes": 2,
+      "reversible_mappings": 8386
+    }
+  ],
+  "additional": {
+    "id": 28604,
+    "label": "ISO 8859-14",
+    "implementation": "encoding_rs; unavailable through Windows NLS"
+  }
+}

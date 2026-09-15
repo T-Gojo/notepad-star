@@ -1,0 +1,19 @@
+Notepad Star 0.1 - Development Preview
+
+This is a new application, not an official Notepad++ release.
+Its window, tabs, file handling and search UI are implemented in app\src.
+It does not use the Notepad++ application, installer, updater or plugin system.
+Source: https://github.com/T-Gojo/notepad-star
+
+Notepad Star is distributed under GNU GPL version 3 or later (LICENSE.txt).
+Preserve the license and provide corresponding source when distributing it.
+
+Reused libraries from this checkout:
+- Scintilla: editing control; see Scintilla-LICENSE.txt.
+- Lexilla: syntax highlighting lexers; see Lexilla-LICENSE.txt.
+- Boost.Regex: used by this checkout's Scintilla build; see Boost-LICENSE.txt.
+These components retain their original copyright and license notices.
+
+This is an unsigned local development build, not a certified release.
+Renaming or rebuilding software is not a security guarantee.
+No Windows security settings are changed by the application or build scripts.

@@ -1,0 +1,67 @@
+Notepad Star 0.1.0 release candidate
+
+rc.6 reworks the tool panels around the user's left/right layout. Tree, Graph
+and Pretty selection moved from tabs inside the JSON Inspector to a new Tools
+toolbar row, alongside toggles that open and close the Compare and JSON panels.
+The graph now draws one card per object/array listing its own key/value rows,
+with nested keys linked to their own card, instead of one card per value. Pretty
+JSON is syntax-coloured by default and follows the light/dark theme. The Language
+menu is grouped by initial letter. Comparison can be closed from the tab
+right-click menu, compares the adjacent tab when the other view is empty, and no
+longer conflicts with the JSON Inspector, which is now a dockable tool panel.
+
+Includes rc.5's two real editable tab groups. Move multiple documents between
+views while preserving undo, selection, pinned ordering and session state.
+Compare the active tab in each view with live line, word or character
+differences, annotation-based alignment and configurable ignore options.
+
+Find and Replace now use a modeless tabbed popup with Count, Find All in the
+current/all-open documents, wrap-around and existing Normal/Extended/regex modes.
+Results navigate to revision-checked unsaved buffers in either group.
+Also fixes a Windows local-handoff timing race where an already-drained write
+could be reported as a timeout. A complete acknowledgement is still required.
+
+Includes rc.4's discoverable sidebar toggle, compact adaptive editor gutters and
+maximized (not full-screen) startup. Tools > JSON now includes lossless pretty/
+minify formatting, a searchable tree/pretty preview and a local interactive
+JSON graph. Tools > Compare and tab context/drag actions open a live read-only
+right comparison pane, with highlighted line differences, navigation, swapping
+and mapped scroll synchronization. See README.md for explicit tool budgets.
+
+Includes rc.3's automatic retention of open tabs and unsaved text on application
+exit, including untitled notes and pending encoding conversions. Failed session
+writes keep the editor open. Explicit tab close/discard remains separate.
+Clean files refresh from disk; modified snapshots retain save-conflict checks.
+Independent windows use locked journals, with conflicting snapshots restored
+as separate unsaved copies. The preference is enabled by default.
+
+Includes rc.2's original folded-N/north-star identity, vector wordmarks,
+light/dark variants, and matching application/installer icons.
+
+This release candidate is for controlled evaluation of the supported feature
+set. It is not a claim of complete Notepad++ compatibility or qualification.
+
+Supported: guarded text editing/saving, 52 encoding modes, sessions/recovery,
+search/replace, languages/UDL, function lists, basic macros, local Wasm
+extensions, selected preference migration, printing, and local instance reuse.
+
+Limits: editable text/files 32 MiB; 64 documents; 128 MiB session snapshots.
+Larger files have a read-only paged viewer. Complex/proportional long-line
+performance, complete configuration/plugin compatibility and localization
+remain outside the qualified scope. Save explicitly and keep independent
+backups; recovery cannot guarantee protection against every crash or power loss.
+
+Release builds use optimized Rust and native code, include original application
+artwork/metadata, and omit the developer-only window banner. This does not
+replace publisher signing, clean-machine qualification or platform acceptance.
+
+Before deployment, verify the publisher signature and release-manifest.json.
+Hashes detect changed bytes but do not authenticate an unsigned download.
+Unsigned candidates must not be represented as verified public releases.
+No Defender/Gatekeeper exclusions, quarantine removal or security bypasses are
+required or performed by this application.
+
+The existing application-data identity is retained so upgrading does not hide
+existing profiles, sessions or recovery. Close the old application normally
+before replacing an installed/portable copy. User data is not uninstalled.
+See README.md and packaging/release-gates.json in the corresponding source.

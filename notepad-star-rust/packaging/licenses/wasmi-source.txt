@@ -1,0 +1,8 @@
+Supplemental notice for wasmi crates whose published archive omits a root license file.
+
+Source repository: https://github.com/wasmi-labs/wasmi
+Verified source commit: 50ac76771d631f642e8c4c61bf44c99546024461
+License source: https://raw.githubusercontent.com/wasmi-labs/wasmi/50ac76771d631f642e8c4c61bf44c99546024461/LICENSE-MIT
+
+The published crates declare MIT/Apache-2.0. This distribution uses the MIT alternative.
+Packaging requires both the exact source commit and declared license to match.

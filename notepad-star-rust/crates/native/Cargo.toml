@@ -1,0 +1,20 @@
+[package]
+name = "star-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cxx.workspace = true
+star-core = { path = "../core" }
+serde_json.workspace = true
+star-search = { path = "../search" }
+star-extensions = { path = "../extensions" }
+
+[build-dependencies]
+cxx-build = "1.0"
+cmake = "0.1"
+
+[lints]
+workspace = true

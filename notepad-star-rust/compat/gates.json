@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "current_milestone": "R2 local features; selected R3-R7 functionality",
+  "advance_to_r1": true,
+  "macos_release_qualified": false,
+  "continuation": "User requested continuing implementation while platform gates remain open.",
+  "gates": [
+    {
+      "id": "windows-foundation",
+      "status": "passed-automated-prototype-checks",
+      "evidence": "xtask doctor, lint, test and package completed locally; package smoke ran without Qt SDK paths"
+    },
+    {
+      "id": "usable-editor",
+      "status": "implemented-locally",
+      "evidence": "Rust file open/save/reload, Unicode/BOM codecs, target conflict/read-only protection, snapshot sessions/recovery, literal replace, CLI paths and file drops are wired. Cross-platform acceptance is not complete."
+    },
+    {
+      "id": "advanced-command-subset",
+      "status": "partial",
+      "evidence": "Bookmarks, line/case/EOL operations, strict exact numeric sorting, checked column insertion, folding, read-only state, multi-selection, tab presentation and shared views pass local checks. Full R3/R4 parity remains open."
+    },
+    {
+      "id": "settings-search-automation-extensions",
+      "status": "passed-local-integration-checks",
+      "evidence": "Settings/shortcuts, session view restoration, bounded regex and file scanning, basic macros, PDF output, conversion tools and permission-gated Wasm proposals are integrated. This does not establish full baseline parity."
+    },
+    {
+      "id": "windows-installer",
+      "status": "compiled-development-artifact",
+      "evidence": "Per-user unsigned NSIS installer compiled from the relocated package. Signing and clean-machine install/uninstall qualification remain pending."
+    },
+    {
+      "id": "macos-foundation",
+      "status": "blocked",
+      "evidence": "Windows development host; GitHub CLI is unauthenticated. Workflow authored but no Apple Silicon run or runtime result."
+    },
+    {
+      "id": "upstream-preservation",
+      "status": "passed",
+      "evidence": "PowerEditor, scintilla, lexilla and boostregex are unchanged; native targets compile reused sources out of tree"
+    },
+    {
+      "id": "regex-integration",
+      "status": "partial",
+      "evidence": "Existing Boost integration runs in bounded child workers with revision/selection guards. Local fixtures cover captures, backward overlapping matches, zero-width progression, invalid patterns and cancellation. Complete reference parity and Mac execution remain unqualified."
+    },
+    {
+      "id": "recent-file-workflows",
+      "status": "passed-local-integration-checks",
+      "evidence": "Recent menus, open-all, clear and reopen-last-closed are wired to successful file operations. Bounded native paths and saved encodings persist, legacy profiles load, stale preference edits remain protected and cancelled closes do not enter history. Reopen fixtures discard unsaved text/conversion intent and read exact disk bytes. Full platform/history compatibility remains unqualified."
+    },
+    {
+      "id": "checked-monospace-long-lines",
+      "status": "passed-local-targeted-qualification",
+      "evidence": "Enabled the same public Scintilla checked-monospace option as the reference, on editor and map styles; hidden maps detach buffers. 1,512 font/style/text/scale-factor cases preserve public cursor positions. The exact 32 MiB ASCII workflow with visible map completes locally in about 1.8 seconds under a 15-second budget. No private Qt API or shared-source patch remains. Proportional/complex-Unicode performance and Mac runtime remain unqualified."
+    },
+    {
+      "id": "macro-cancellation-tools",
+      "status": "passed-local-integration-checks",
+      "evidence": "Repeat limits, cancellable GUI-thread batches, input/worker exclusion, coherent dirty/revision state and one-group partial undo are implemented. Fixtures exercise cancellation, IME exclusion, exact repeat limits and shrinking replacements at 32 MiB. Summary/date-time commands are wired; custom date patterns intentionally use Qt rather than strftime. Full macro/library compatibility remains open."
+    },
+    {
+      "id": "instance-forwarding",
+      "status": "passed-local-integration-checks",
+      "evidence": "Opt-in reuse, typed native-path requests, owned startup locks, bounded local frames, partial errors and busy-window refusal are implemented. Real Windows primary/secondary processes exercise relative paths, handoff exit and clean-session persistence; native fixtures preserve unsaved buffers and reject malformed frames. Unix socket privacy is configured but not runtime-qualified."
+    },
+    {
+      "id": "preference-migration",
+      "status": "partial",
+      "evidence": "Supported config.xml/stylers.xml fields and validated native JSON profiles have preview, explicit unsupported-field reporting and exact pre-import backups. Confirmed malformed-profile reset preserves original bytes. Expanded preferences apply to existing/new/cloned views. Full settings/style/localization compatibility remains open."
+    },
+    {
+      "id": "line-layout",
+      "status": "passed-local-integration-checks",
+      "evidence": "Reference line duplication, separate selection duplication, mixed-EOL joins, visible-width splits and blank lines pass native undo/caret fixtures. Macro duplication and large transformation paths have allocation/output guardrails. Full editing parity/scale acceptance remains open."
+    },
+    {
+      "id": "bookmark-workflows",
+      "status": "passed-local-integration-checks",
+      "evidence": "Copy/cut, repeated paste, marked/unmarked deletion and inversion are wired. Native fixtures cover mixed EOLs, undo and checksummed bookmark restoration. Copy/cut enforce clipboard/state checks; batch edits coalesce controller notifications. Platform clipboard equivalence and full scale qualification remain open."
+    },
+    {
+      "id": "macos-rust-services",
+      "status": "passed-cross-target-typecheck",
+      "evidence": "Core, I/O, search and extension crates, including test targets, pass Clippy for aarch64-apple-darwin from Windows. This does not build or run the native Qt application or execute Unix tests."
+    },
+    {
+      "id": "encoding-catalog",
+      "status": "passed-local-integration-checks",
+      "evidence": "52 modes cover Unicode BOM/no-BOM forms and all 46 active named reference code pages. Every frozen Windows scalar mapping is tested for exact reversibility; ISO 8859-14 uses encoding_rs. Native fixtures cover open/save, legacy search navigation, replacement and byte-exact restore. Ambiguous/best-fit aliases are deliberately refused; Mac runtime remains unqualified."
+    },
+    {
+      "id": "comment-navigation",
+      "status": "partial",
+      "evidence": "Rust comment plans, catalog/UDL markers, mixed-EOL line toggles, block wrap/unwrap, undo and UTF-8 brace navigation pass local tests. Single stream selection only; grouped UDL comment tokens and ambiguous nested removals remain explicit unsupported cases."
+    },
+    {
+      "id": "local-extension-manager",
+      "status": "passed-local-integration-checks",
+      "evidence": "Native manager and bounded workers cover reviewed install, immutable version updates, disabled defaults, enable/disable, permission-gated execution/undo, validated uninstall and retained roots/source packages. Rust tests cover locks, tampering, incomplete installs and forbidden paths. Mac execution and authenticated registry/public distribution remain open."
+    },
+    {
+      "id": "macro-import",
+      "status": "partial",
+      "evidence": "Basic shortcuts.xml import preserves upstream literal attribute whitespace, rejects DTDs and unsupported actions without partial tapes, and never executes on import. Local replay/undo and indentation checks pass. Full macro/search/configuration migration remains open."
+    },
+    {
+      "id": "feature-inventory",
+      "status": "partial",
+      "evidence": "909 deterministic seed entries include command aliases/ranges and controls, not 909 completed features; semantic reconciliation remains required"
+    },
+    {
+      "id": "native-input-accessibility",
+      "status": "partial",
+      "evidence": "Synthetic Qt Unicode IME commit passes locally; physical IME/dead keys, Narrator/VoiceOver, high contrast and RTL need platform validation"
+    },
+    {
+      "id": "visual-parity",
+      "status": "not-qualified",
+      "evidence": "Fusion-based native prototype with Windows-like client layout; no pixel-level reference comparison"
+    }
+  ]
+}

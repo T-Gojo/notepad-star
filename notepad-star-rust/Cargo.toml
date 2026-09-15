@@ -1,0 +1,26 @@
+[workspace]
+members = ["crates/core", "crates/io", "crates/search", "crates/native", "crates/desktop", "crates/extensions", "xtask"]
+default-members = ["crates/core", "xtask"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0-rc.6"
+edition = "2021"
+rust-version = "1.97"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order", "raw_value"] }
+cxx = "1.0"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+panic = "abort"
