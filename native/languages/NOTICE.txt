@@ -1,0 +1,45 @@
+Notepad Star native language support
+===================================
+
+New helper and test sources: GPL-3.0-or-later.
+The application GPL license is at the repository root LICENSE and is embedded
+unchanged at :/notepad-star/languages/LICENSE.
+
+Notepad++ language mappings, keyword definitions, theme definitions and
+completion data:
+  reference/notepad-plus-plus/PowerEditor/src/ScintillaComponent/ScintillaEditView.cpp
+  reference/notepad-plus-plus/PowerEditor/src/ScintillaComponent/ScintillaEditView.h
+  reference/notepad-plus-plus/PowerEditor/src/ScintillaComponent/UserDefineDialog.h
+  reference/notepad-plus-plus/PowerEditor/src/Parameters.cpp
+  reference/notepad-plus-plus/PowerEditor/src/MISC/Common/NppConstants.h
+  reference/notepad-plus-plus/PowerEditor/src/langs.model.xml
+  reference/notepad-plus-plus/PowerEditor/src/stylers.model.xml
+  reference/notepad-plus-plus/PowerEditor/installer/themes/DarkModeDefault.xml
+  reference/notepad-plus-plus/PowerEditor/installer/APIs/*.xml
+These remain unchanged in the checked-in upstream source tree. Original XML
+comments and notices are preserved verbatim in the generated Qt resource.
+Notepad++ is Copyright (C) Don HO and contributors, GPL-3.0-or-later; see each
+source's own header and the repository LICENSE for controlling terms.
+
+Lexilla/Scintilla lexer interfaces, engine registrations, UDL constants and the
+actual lexer implementations used for standalone tests:
+  reference/notepad-plus-plus/lexilla/src/Lexilla.cxx
+  reference/notepad-plus-plus/lexilla/lexers/Lex*.cxx
+  reference/notepad-plus-plus/lexilla/lexlib/*
+  reference/notepad-plus-plus/lexilla/include/SciLexer.h
+  reference/notepad-plus-plus/scintilla/include/ILexer.h
+Copyright notices are retained in the original, unmodified sources.
+The upstream permissive license is reference/notepad-plus-plus/lexilla/License.txt, also embedded unchanged.
+Individual upstream files may contain additional author credits and notices.
+
+Markdown-plus-plus UDL profiles:
+  reference/notepad-plus-plus/PowerEditor/bin/userDefineLangs/markdown._preinstalled.udl.xml
+  reference/notepad-plus-plus/PowerEditor/bin/userDefineLangs/markdown._preinstalled_DM.udl.xml
+Copyright (c) Edditoria. MIT licensed, as stated in the original profile comments.
+Project: https://github.com/Edditoria/markdown-plus-plus
+License: https://github.com/Edditoria/markdown-plus-plus/blob/master/LICENSE.txt
+The embedded profiles retain those attribution and license comments unchanged.
+
+Qt Core/Gui is linked from the application's existing Qt 6.8.3 SDK, not copied
+or relicensed by this helper. Preserve the application's Qt notices and comply
+with the applicable Qt licensing terms when distributing.
