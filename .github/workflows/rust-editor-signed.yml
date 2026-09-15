@@ -1,0 +1,51 @@
+name: Publisher-signed desktop candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Prepared publisher runner
+        required: true
+        type: choice
+        options:
+          - windows-x64
+          - macos-arm64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-signed-${{ inputs.platform }}
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    if: github.ref_name == github.event.repository.default_branch
+    environment: desktop-release
+    runs-on: ${{ inputs.platform == 'windows-x64' && fromJSON('["self-hosted","Windows","X64","notepad-star-release"]') || fromJSON('["self-hosted","macOS","ARM64","notepad-star-release"]') }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: notepad-star-rust
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Fail closed on missing acceptance evidence or publisher setup
+        run: cargo run --locked -p xtask -- release-check
+      - name: Build, sign and validate the exact package
+        run: |
+          cargo run --locked -p xtask -- lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- package-signed
+      - name: Sign the Windows installer and uninstaller
+        if: inputs.platform == 'windows-x64'
+        run: cargo run --locked -p xtask -- installer-signed
+      - name: Upload publisher-signed candidate and corresponding source
+        uses: actions/upload-artifact@v7
+        with:
+          name: notepad-star-signed-candidate-${{ inputs.platform }}
+          path: notepad-star-rust/dist
+          if-no-files-found: error

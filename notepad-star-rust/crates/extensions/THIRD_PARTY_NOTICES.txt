@@ -1,0 +1,288 @@
+Notepad Star extension dependency notices
+
+Generated from the workspace Cargo.lock and Cargo package metadata.
+Scope: registry dependency trees of star-extensions, excluding the existing
+star-io subtree, whose notices remain the responsibility of the application.
+All listed alternate-license dependencies may be used under their MIT option;
+additional Unicode/BSD/Zlib notices are retained where required. Upstream
+license files are preserved verbatim, including alternate Apache licenses.
+Wasmi and wasm-tools packages omit root license files in their crate archives;
+those files were retrieved from their exact package VCS revisions.
+
+arrayvec 0.7.8
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/bluss/arrayvec
+Authors: bluss
+Notices: licenses/arrayvec-0.7.8
+
+bitflags 2.13.2
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/bitflags/bitflags
+Authors: The Rust Project Developers
+Notices: licenses/bitflags-2.13.2
+
+block-buffer 0.10.4
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/RustCrypto/utils
+Authors: RustCrypto Developers
+Notices: licenses/block-buffer-0.10.4
+
+bumpalo 3.20.3
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/fitzgen/bumpalo
+Authors: Nick Fitzgerald <fitzgen@gmail.com>
+Notices: licenses/bumpalo-3.20.3
+
+cfg-if 1.0.4
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/rust-lang/cfg-if
+Authors: Alex Crichton <alex@alexcrichton.com>
+Notices: licenses/cfg-if-1.0.4
+
+cpufeatures 0.2.17
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/RustCrypto/utils
+Authors: RustCrypto Developers
+Notices: licenses/cpufeatures-0.2.17
+
+crypto-common 0.1.7
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/RustCrypto/traits
+Authors: RustCrypto Developers
+Notices: licenses/crypto-common-0.1.7
+
+digest 0.10.7
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/RustCrypto/traits
+Authors: RustCrypto Developers
+Notices: licenses/digest-0.10.7
+
+downcast-rs 2.0.2
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/marcianx/downcast-rs
+Authors: (see upstream notices)
+Notices: licenses/downcast-rs-2.0.2
+
+equivalent 1.0.2
+SPDX: Apache-2.0 OR MIT
+Source: https://github.com/indexmap-rs/equivalent
+Authors: (see upstream notices)
+Notices: licenses/equivalent-1.0.2
+
+foldhash 0.1.5
+SPDX: Zlib
+Source: https://github.com/orlp/foldhash
+Authors: Orson Peters <orsonpeters@gmail.com>
+Notices: licenses/foldhash-0.1.5
+
+generic-array 0.14.7
+SPDX: MIT
+Source: https://github.com/fizyk20/generic-array.git
+Authors: BartÅ‚omiej KamiÅ„ski <fizyk20@gmail.com>, Aaron Trent <novacrazy@gmail.com>
+Notices: licenses/generic-array-0.14.7
+
+hashbrown 0.15.5
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/rust-lang/hashbrown
+Authors: Amanieu d'Antras <amanieu@gmail.com>
+Notices: licenses/hashbrown-0.15.5
+
+hashbrown 0.17.1
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/rust-lang/hashbrown
+Authors: (see upstream notices)
+Notices: licenses/hashbrown-0.17.1
+
+indexmap 2.14.2
+SPDX: Apache-2.0 OR MIT
+Source: https://github.com/indexmap-rs/indexmap
+Authors: (see upstream notices)
+Notices: licenses/indexmap-2.14.2
+
+itoa 1.0.18
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/dtolnay/itoa
+Authors: David Tolnay <dtolnay@gmail.com>
+Notices: licenses/itoa-1.0.18
+
+leb128fmt 0.1.0
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/bluk/leb128fmt
+Authors: Bryant Luk <code@bryantluk.com>
+Notices: licenses/leb128fmt-0.1.0
+
+libc 0.2.189
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/rust-lang/libc
+Authors: (see upstream notices)
+Notices: licenses/libc-0.2.189
+
+libm 0.2.16
+SPDX: MIT
+Source: https://github.com/rust-lang/compiler-builtins
+Authors: Alex Crichton <alex@alexcrichton.com>, Amanieu d'Antras <amanieu@gmail.com>, Jorge Aparicio <japaricious@gmail.com>, Trevor Gross <tg@trevorgross.com>
+Notices: licenses/libm-0.2.16
+
+memchr 2.8.3
+SPDX: Unlicense OR MIT
+Source: https://github.com/BurntSushi/memchr
+Authors: Andrew Gallant <jamslam@gmail.com>, bluss
+Notices: licenses/memchr-2.8.3
+
+multi-stash 0.2.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/robbepop/multi-stash
+Authors: Robin Freyler <robin.freyler@gmail.com>
+Notices: licenses/multi-stash-0.2.0
+
+proc-macro2 1.0.107
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/dtolnay/proc-macro2
+Authors: David Tolnay <dtolnay@gmail.com>, Alex Crichton <alex@alexcrichton.com>
+Notices: licenses/proc-macro2-1.0.107
+
+quote 1.0.47
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/dtolnay/quote
+Authors: David Tolnay <dtolnay@gmail.com>
+Notices: licenses/quote-1.0.47
+
+serde 1.0.229
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/serde-rs/serde
+Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+Notices: licenses/serde-1.0.229
+
+serde_core 1.0.229
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/serde-rs/serde
+Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+Notices: licenses/serde_core-1.0.229
+
+serde_derive 1.0.229
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/serde-rs/serde
+Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+Notices: licenses/serde_derive-1.0.229
+
+serde_json 1.0.151
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/serde-rs/json
+Authors: Erick Tryzelaar <erick.tryzelaar@gmail.com>, David Tolnay <dtolnay@gmail.com>
+Notices: licenses/serde_json-1.0.151
+
+sha2 0.10.9
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/RustCrypto/hashes
+Authors: RustCrypto Developers
+Notices: licenses/sha2-0.10.9
+
+smallvec 1.16.1
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/servo/rust-smallvec
+Authors: The Servo Project Developers
+Notices: licenses/smallvec-1.16.1
+
+spin 0.9.9
+SPDX: MIT
+Source: https://github.com/mvdnes/spin-rs.git
+Authors: Mathijs van de Nes <git@mathijs.vd-nes.nl>, John Ericson <git@JohnEricson.me>, Joshua Barretto <joshua.s.barretto@gmail.com>
+Notices: licenses/spin-0.9.9
+
+string-interner 0.19.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/robbepop/string-interner
+Authors: Robbepop
+Notices: licenses/string-interner-0.19.0
+
+syn 3.0.5
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/dtolnay/syn
+Authors: David Tolnay <dtolnay@gmail.com>
+Notices: licenses/syn-3.0.5
+
+typenum 1.20.1
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/paholg/typenum
+Authors: (see upstream notices)
+Notices: licenses/typenum-1.20.1
+
+unicode-ident 1.0.24
+SPDX: (MIT OR Apache-2.0) AND Unicode-3.0
+Source: https://github.com/dtolnay/unicode-ident
+Authors: David Tolnay <dtolnay@gmail.com>
+Notices: licenses/unicode-ident-1.0.24
+
+unicode-width 0.2.2
+SPDX: MIT OR Apache-2.0
+Source: https://github.com/unicode-rs/unicode-width
+Authors: kwantam <kwantam@gmail.com>, Manish Goregaokar <manishsmail@gmail.com>
+Notices: licenses/unicode-width-0.2.2
+
+version_check 0.9.5
+SPDX: MIT/Apache-2.0
+Source: https://github.com/SergioBenitez/version_check
+Authors: Sergio Benitez <sb@sergio.bz>
+Notices: licenses/version_check-0.9.5
+
+wasm-encoder 0.228.0
+SPDX: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Source: https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasm-encoder
+Authors: Nick Fitzgerald <fitzgen@gmail.com>
+Notices: licenses/wasm-encoder-0.228.0
+License source revision: e66235859a6ec0502bf6f9dcc358953eda4cafcc
+
+wasmi 0.46.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/wasmi-labs/wasmi
+Authors: Robin Freyler <robin.freyler@gmail.com>
+Notices: licenses/wasmi-0.46.0
+License source revision: 50ac76771d631f642e8c4c61bf44c99546024461
+
+wasmi_collections 0.46.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/wasmi-labs/wasmi
+Authors: Robin Freyler <robin.freyler@gmail.com>
+Notices: licenses/wasmi_collections-0.46.0
+License source revision: 50ac76771d631f642e8c4c61bf44c99546024461
+
+wasmi_core 0.46.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/wasmi-labs/wasmi
+Authors: Robin Freyler <robin.freyler@gmail.com>
+Notices: licenses/wasmi_core-0.46.0
+License source revision: 50ac76771d631f642e8c4c61bf44c99546024461
+
+wasmi_ir 0.46.0
+SPDX: MIT/Apache-2.0
+Source: https://github.com/wasmi-labs/wasmi
+Authors: Robin Freyler <robin.freyler@gmail.com>
+Notices: licenses/wasmi_ir-0.46.0
+License source revision: 50ac76771d631f642e8c4c61bf44c99546024461
+
+wasmparser 0.228.0
+SPDX: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Source: https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wasmparser
+Authors: Yury Delendik <ydelendik@mozilla.com>
+Notices: licenses/wasmparser-0.228.0
+License source revision: e66235859a6ec0502bf6f9dcc358953eda4cafcc
+
+wast 228.0.0
+SPDX: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Source: https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wast
+Authors: Alex Crichton <alex@alexcrichton.com>
+Notices: licenses/wast-228.0.0
+License source revision: e66235859a6ec0502bf6f9dcc358953eda4cafcc
+
+wat 1.228.0
+SPDX: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+Source: https://github.com/bytecodealliance/wasm-tools/tree/main/crates/wat
+Authors: Alex Crichton <alex@alexcrichton.com>
+Notices: licenses/wat-1.228.0
+License source revision: e66235859a6ec0502bf6f9dcc358953eda4cafcc
+
+zmij 1.0.23
+SPDX: MIT
+Source: https://github.com/dtolnay/zmij
+Authors: David Tolnay <dtolnay@gmail.com>
+Notices: licenses/zmij-1.0.23

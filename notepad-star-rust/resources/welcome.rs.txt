@@ -1,0 +1,42 @@
+// Notepad Star @VERSION@
+//
+// A new application using Rust for commands and document state,
+// Qt Widgets for the desktop shell, and Scintilla/Lexilla for editing.
+
+fn main() {
+    let platforms = ["Windows", "macOS"];
+    for platform in platforms {
+        println!("Hello, {platform}!");
+    }
+}
+
+// Explore the editor:
+//   Ctrl+N       Create a document
+//   Ctrl+O       Open files (or drag files into the window)
+//   Ctrl+S       Save with encoding and conflict protection
+//   Ctrl+F / H   Find / replace text
+//   Ctrl+Alt+V   Clone this document into a split view
+//   Alt+Z        Toggle word wrap
+//   Settings     Switch the light/dark theme
+//                Configure fonts, indentation and shortcuts
+//
+// File: Save As, Save Copy, Reload, Save/Load Session and recovery.
+// Edit: line operations, case conversion, sorting and EOL conversion.
+// Search: bookmarks, literal find/replace and Go to Line.
+// View: folder browser, shared split view, folding and word wrap.
+// Encoding: 52 Unicode/BOM and legacy code-page modes.
+//
+// Search: extended escapes, regex and disk-file search in bounded workers.
+// Macro: record, save, import, repeat and cancel basic text edits.
+// Tools: hashes, Base64, URL conversion and JSON formatting.
+// Plugins: install/manage local Wasm extensions and approve each run.
+// File: native print/preview; sessions preserve view state.
+//
+// Language: bundled syntax/completion data, UDL and Function List.
+// Search: previewed disk replacement with original-byte backups.
+// Settings: import supported preferences with a backup of the old profile.
+//
+// Release candidate: see RELEASE-NOTES.txt for the supported scope.
+// Full Notepad++ parity and native Mac/public-release qualification
+// remain outside the current acceptance claim.
+// Save work explicitly; recovery checkpoints are best-effort snapshots.

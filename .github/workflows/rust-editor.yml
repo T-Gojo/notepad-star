@@ -1,0 +1,118 @@
+name: Rust editor foundation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'notepad-star-rust/**'
+      - 'scintilla/**'
+      - 'lexilla/**'
+      - 'boostregex/**'
+      - 'PowerEditor/src/menuCmdID.h'
+      - 'PowerEditor/src/Notepad_plus.rc'
+      - 'PowerEditor/src/WinControls/Preference/preference.rc'
+      - 'PowerEditor/src/langs.model.xml'
+      - 'PowerEditor/src/stylers.model.xml'
+      - 'PowerEditor/src/ScintillaComponent/**'
+      - 'PowerEditor/src/pugixml/**'
+      - 'PowerEditor/installer/APIs/**'
+      - 'PowerEditor/installer/functionList/**'
+      - 'PowerEditor/Test/FunctionList/**'
+      - 'PowerEditor/installer/themes/DarkModeDefault.xml'
+      - 'PowerEditor/bin/userDefineLangs/**'
+      - '.github/workflows/rust-editor.yml'
+  pull_request:
+    paths:
+      - 'notepad-star-rust/**'
+      - 'scintilla/**'
+      - 'lexilla/**'
+      - 'boostregex/**'
+      - 'PowerEditor/src/menuCmdID.h'
+      - 'PowerEditor/src/Notepad_plus.rc'
+      - 'PowerEditor/src/WinControls/Preference/preference.rc'
+      - 'PowerEditor/src/langs.model.xml'
+      - 'PowerEditor/src/stylers.model.xml'
+      - 'PowerEditor/src/ScintillaComponent/**'
+      - 'PowerEditor/src/pugixml/**'
+      - 'PowerEditor/installer/APIs/**'
+      - 'PowerEditor/installer/functionList/**'
+      - 'PowerEditor/Test/FunctionList/**'
+      - 'PowerEditor/installer/themes/DarkModeDefault.xml'
+      - 'PowerEditor/bin/userDefineLangs/**'
+      - '.github/workflows/rust-editor.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+            qt_folder: msvc2022_64
+            rust_target: x86_64-pc-windows-msvc
+            artifact: windows-x64
+          - runner: macos-14
+            qt_host: mac
+            qt_arch: clang_64
+            qt_folder: macos
+            rust_target: aarch64-apple-darwin
+            artifact: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: notepad-star-rust
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $hostLine = rustc -vV | Select-String '^host:'
+          if ($hostLine.ToString() -ne 'host: ${{ matrix.rust_target }}') {
+            throw "Unexpected runner architecture: $hostLine"
+          }
+      - name: Install pinned Qt SDK and source notices
+        run: |
+          python -m pip install --quiet aqtinstall==3.3.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m aqt install-qt ${{ matrix.qt_host }} desktop 6.8.3 ${{ matrix.qt_arch }} -m qt5compat --outputdir build/qt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m aqt install-src ${{ matrix.qt_host }} 6.8.3 --archives qtbase qt5compat qtsvg --outputdir build/qt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $qt = Join-Path (Get-Location) 'build/qt/6.8.3/${{ matrix.qt_folder }}'
+          "QT_ROOT=$qt" >> $env:GITHUB_ENV
+      - name: Check prerequisites
+        run: cargo run --locked -p xtask -- doctor
+      - name: Rust and native checks
+        run: cargo run --locked -p xtask -- test
+      - name: Verify frozen Windows code-page mappings
+        if: runner.os == 'Windows'
+        run: python tools/generate_codepages.py --check
+      - name: Language catalog and real-lexer fixtures
+        run: cargo run --locked -p xtask -- language-test
+      - name: Function-list compatibility fixtures
+        run: cargo run --locked -p xtask -- function-test
+      - name: Exact Qt text-measurement fixtures
+        run: cargo run --locked -p xtask -- text-test
+      - name: Windows long-line workflow budget
+        if: runner.os == 'Windows'
+        run: cargo run --locked -p xtask -- long-line-test
+      - name: Formatting and lint
+        run: cargo run --locked -p xtask -- lint
+      - name: Package and test without SDK paths
+        run: cargo run --locked -p xtask -- package
+      - name: Upload unsigned foundation artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: notepad-star-rust-foundation-${{ matrix.artifact }}
+          path: notepad-star-rust/dist/${{ matrix.artifact }}
+          if-no-files-found: error

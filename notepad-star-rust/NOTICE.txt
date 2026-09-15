@@ -1,0 +1,55 @@
+Notepad Star Rust - Development preview
+
+Independent from Notepad++ and the previous C++ preview.
+The folded-N/north-star logo and geometric wordmark are original Notepad Star
+artwork. Source vectors, platform icons and regeneration geometry are included
+in the corresponding source; no third-party font is embedded in the wordmark.
+Rust owns command definitions, document state, file I/O and recovery.
+Qt Widgets hosts the interface, with Scintilla/Lexilla and Boost.Regex.
+
+This preview does not implement full Notepad++ feature parity.
+Guarded file saves, recovery, sessions and selected advanced commands work.
+The shared codec catalog includes 52 Unicode/legacy modes, explicit file-search
+encoding, reversible code-page mappings and byte-preserving disk replacements.
+Comment editing uses language/UDL markers and preserves undo/EOL state.
+Preference migration previews supported XML/JSON settings and retains previous
+profiles. Confirmed default restoration can repair malformed preferences.
+Opt-in local instance reuse forwards bounded file/navigation requests without
+overwriting open unsaved buffers. Independent windows remain the default.
+Repeated macros have responsive cancellation and retain one undo group.
+Document statistics and bounded locale/custom date-time insertion are available.
+Editor and Document Map styles enable Scintilla's verified-monospace path.
+Proportional fonts and complex text retain their original shaping behavior.
+Recent/closed-file actions are wired with bounded histories and saved encoding
+hints. Reopening reads disk; discarded buffer text is not retained in history.
+Basic macros, settings, bounded search and local Wasm text extensions work.
+Bundled language/style/completion metadata, UDL 2.1, basic project workspaces,
+styled export and guarded disk replacements are implemented.
+Function List, persistent tab presentation and bounded large-file viewing are
+implemented. Reviewed local extension installation/update/enable/disable/removal
+is available; new versions are disabled and every run requires permission.
+Complete parity, an authenticated registry and application updates remain planned.
+Save documents explicitly; recovery is not a replacement for backups.
+
+Notepad Star: GPL-3.0-or-later; see LICENSE.txt.
+Scintilla and Lexilla: retain original notices; see their license files.
+Boost.Regex: Boost Software License 1.0; see Boost-LICENSE.txt.
+Qt: dynamically linked; see licenses/Qt and https://www.qt.io/licensing/.
+CXX: MIT OR Apache-2.0; see https://github.com/dtolnay/cxx.
+Serde and serde_json: MIT OR Apache-2.0; see https://serde.rs/.
+The package includes notices for the file I/O, encoding, hashing and locking
+dependencies resolved in Cargo.lock.
+LanguageAssets-NOTICE.txt records the embedded upstream language/theme/API assets.
+FunctionList-NOTICE.txt records embedded function-list definitions and behavior references.
+pugixml: MIT; see licenses/pugixml/LICENSE.txt. The shortcut importer uses the
+unchanged parser source from this checkout with upstream whitespace-preserving flags.
+Cargo.lock records resolved Rust dependencies. Preserve the applicable notices.
+Legacy code-page tables are generated numeric results of Windows conversion APIs,
+not copied Windows implementation code; provenance and generator are in source.
+Wasmi and wasm-tools component notices are included under licenses/Rust.
+Windows packages include Microsoft's app-local Visual C++ runtime from the
+installed Visual Studio redistributable set; its redistribution terms apply.
+Corresponding source: https://github.com/T-Gojo/notepad-star
+
+Developer artifacts are unsigned and are not verified public releases.
+The application does not change Defender, Gatekeeper or other OS protections.

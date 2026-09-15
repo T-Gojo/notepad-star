@@ -82,6 +82,7 @@ PowerEditor/binarm64/
 PowerEditor/bin/themes/
 PowerEditor/installer/bin/wingup/
 PowerEditor/installer/build/
+app/build/
 PowerEditor/installer/minimalist/
 PowerEditor/installer/minimalist64/
 PowerEditor/installer/minimalistArm64/

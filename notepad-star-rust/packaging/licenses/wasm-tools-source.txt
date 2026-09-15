@@ -1,0 +1,13 @@
+Supplemental notice for wasm-tools crates whose published archive omits a root license file.
+
+Source repository: https://github.com/bytecodealliance/wasm-tools
+Verified source commit: e66235859a6ec0502bf6f9dcc358953eda4cafcc
+License source: https://raw.githubusercontent.com/bytecodealliance/wasm-tools/e66235859a6ec0502bf6f9dcc358953eda4cafcc/LICENSE-MIT
+
+The published crates declare:
+Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT
+This distribution uses the MIT alternative.
+
+Packaging requires the crate's .cargo_vcs_info.json to match this exact source
+commit and its manifest to declare the MIT alternative. Missing notices for
+any other dependency still fail packaging.

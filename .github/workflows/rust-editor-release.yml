@@ -1,0 +1,82 @@
+name: Desktop release candidates
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            qt_host: windows
+            qt_arch: win64_msvc2022_64
+            qt_folder: msvc2022_64
+            target: x86_64-pc-windows-msvc
+            artifact: windows-x64
+          - runner: macos-14
+            qt_host: mac
+            qt_arch: clang_64
+            qt_folder: macos
+            target: aarch64-apple-darwin
+            artifact: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: notepad-star-rust
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Provision pinned build prerequisites
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((rustc -vV | Select-String '^host:').ToString() -ne 'host: ${{ matrix.target }}') { throw 'Wrong runner architecture.' }
+          python -m pip install --quiet aqtinstall==3.3.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m aqt install-qt ${{ matrix.qt_host }} desktop 6.8.3 ${{ matrix.qt_arch }} -m qt5compat --outputdir build/qt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m aqt install-src ${{ matrix.qt_host }} 6.8.3 --archives qtbase qt5compat qtsvg --outputdir build/qt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QT_ROOT=$(Join-Path (Get-Location) 'build/qt/6.8.3/${{ matrix.qt_folder }}')" >> $env:GITHUB_ENV
+      - name: Lint and service/UI regressions
+        run: |
+          cargo run --locked -p xtask -- lint
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- language-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- function-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo run --locked -p xtask -- text-test
+      - name: Build and verify optimized candidate plus source archive
+        run: cargo run --locked -p xtask -- package-release
+      - name: Install NSIS on the disposable Windows runner
+        if: runner.os == 'Windows'
+        run: choco install nsis --version=3.12 -y --no-progress
+      - name: Build and exercise the actual Windows installer
+        if: runner.os == 'Windows'
+        run: |
+          cargo run --locked -p xtask -- installer-release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installers = @(Get-ChildItem dist -Filter '*-candidate-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one candidate installer.' }
+          .\packaging\windows\test-install.ps1 -Installer $installers[0].FullName -Report (Join-Path (Get-Location) 'dist\installer-lifecycle.json')
+      - name: Upload explicitly unsigned candidate artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: notepad-star-candidate-${{ matrix.artifact }}
+          path: notepad-star-rust/dist
+          if-no-files-found: error
