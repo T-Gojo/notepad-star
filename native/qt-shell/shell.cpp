@@ -71,6 +71,7 @@
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QEnterEvent>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTreeView>
@@ -277,6 +278,52 @@ private:
     std::vector<std::uint64_t> history;
 };
 
+// Keeps the chrome at two bars: the button runs its primary command, and hovering
+// reveals the secondary options that used to need a third toolbar row.
+class ToolGroupButton final : public QToolButton {
+public:
+    explicit ToolGroupButton(QWidget* parent) : QToolButton(parent) {
+        setPopupMode(QToolButton::MenuButtonPopup);
+        setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        setAutoRaise(true);
+        hover.setSingleShot(true);
+        hover.setInterval(280);
+        connect(&hover, &QTimer::timeout, this, [this] {
+            if (isEnabled() && underMouse() && menu() && !menu()->isVisible()) showMenu();
+        });
+    }
+    void bind(QAction* action, const QString& label, const QString& hint) {
+        primary = action;
+        setText(label);
+        setIcon(action->icon());
+        setCheckable(action->isCheckable());
+        setToolTip(hint);
+        syncFromAction();
+        connect(this, &QToolButton::clicked, this, [this] {
+            if (primary) primary->trigger();
+            syncFromAction();
+        });
+        connect(action, &QAction::changed, this, [this] { syncFromAction(); });
+    }
+protected:
+    void enterEvent(QEnterEvent* event) override {
+        QToolButton::enterEvent(event);
+        hover.start();
+    }
+    void leaveEvent(QEvent* event) override {
+        hover.stop();
+        QToolButton::leaveEvent(event);
+    }
+private:
+    void syncFromAction() {
+        if (!primary) return;
+        if (isCheckable() && isChecked() != primary->isChecked()) setChecked(primary->isChecked());
+        setEnabled(primary->isEnabled());
+    }
+    QAction* primary = nullptr;
+    QTimer hover;
+};
+
 class Shell final : public QMainWindow {
 public:
     explicit Shell(const LaunchSettings& launch, const rust::Vec<FilePath>& files) : controller(create_controller()) {
@@ -429,23 +476,38 @@ public:
         sidebarButton->setText("Sidebar");
         sidebarButton->setToolTip("Show or hide Document Sidebar (Ctrl+Alt+L)");
         toolbar->addWidget(sidebarButton);
-        addToolBarBreak();
-        toolsBar = addToolBar("Tools");
-        toolsBar->setObjectName("tools-toolbar");
-        toolsBar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-        toolsBar->setIconSize(QSize(16, 16));
+        toolbar->addSeparator();
         commands.at("toggle_comparison")->setIcon(style()->standardIcon(QStyle::SP_FileDialogDetailedView));
         commands.at("json_inspector")->setIcon(style()->standardIcon(QStyle::SP_FileDialogInfoView));
-        for (const auto* id : {"toggle_comparison", "next_difference", "previous_difference", "comparison_settings"})
-            toolsBar->addAction(commands.at(id));
-        toolsBar->addSeparator();
-        toolsBar->addAction(commands.at("json_inspector"));
+        auto* compareMenu = new QMenu("Compare", this);
+        compareMenu->setObjectName("compare-tool-menu");
+        for (const auto* id : {"compare_tabs", "next_difference", "previous_difference"})
+            compareMenu->addAction(commands.at(id));
+        compareMenu->addSeparator();
+        for (const auto* id : {"swap_comparison", "comparison_settings", "stop_comparison"})
+            compareMenu->addAction(commands.at(id));
+        compareButton = new ToolGroupButton(toolbar);
+        compareButton->setObjectName("compare-tool-button");
+        compareButton->setMenu(compareMenu);
+        compareButton->bind(commands.at("toggle_comparison"), "Compare",
+            "Compare tabs \xe2\x80\x94 hover for difference navigation and options");
+        toolbar->addWidget(compareButton);
         auto* jsonViews = new QActionGroup(this);
         jsonViews->setExclusive(true);
+        auto* jsonMenu = new QMenu("JSON", this);
+        jsonMenu->setObjectName("json-tool-menu");
         for (const auto* id : {"json_view_tree", "json_view_graph", "json_view_pretty"}) {
             jsonViews->addAction(commands.at(id));
-            toolsBar->addAction(commands.at(id));
+            jsonMenu->addAction(commands.at(id));
         }
+        jsonMenu->addSeparator();
+        for (const auto* id : {"json_format", "json_minify"}) jsonMenu->addAction(commands.at(id));
+        jsonButton = new ToolGroupButton(toolbar);
+        jsonButton->setObjectName("json-tool-button");
+        jsonButton->setMenu(jsonMenu);
+        jsonButton->bind(commands.at("json_inspector"), "JSON",
+            "JSON Inspector (Ctrl+Alt+I) \xe2\x80\x94 hover for tree, graph and pretty views");
+        toolbar->addWidget(jsonButton);
         syncToolStates();
         recentMenu = new QMenu("Recent Files", this);
         commands.at("open_recent")->setMenu(recentMenu);
@@ -1888,11 +1950,20 @@ private:
         check(fixture.jsonPanel->view() == JsonView::Graph && !fixture.jsonPanel->findChild<QTabWidget*>() &&
             fixture.commands.at("json_view_graph")->isChecked() && !fixture.commands.at("json_view_tree")->isChecked(),
             "The JSON view selector did not move out of the panel into the toolbar.");
-        auto* toolsToolbar = fixture.findChild<QToolBar*>("tools-toolbar");
-        check(toolsToolbar && toolsToolbar->actions().contains(fixture.commands.at("json_view_graph")) &&
-            toolsToolbar->actions().contains(fixture.commands.at("json_inspector")) &&
-            toolsToolbar->actions().contains(fixture.commands.at("toggle_comparison")),
-            "The Compare and JSON tool toggles are missing from the toolbar.");
+        auto* mainToolbar = fixture.findChild<QToolBar*>("main-toolbar");
+        const auto chromeRows = fixture.findChildren<QToolBar*>(QString(), Qt::FindDirectChildrenOnly);
+        check(mainToolbar && chromeRows.size() == 1 && chromeRows.first() == mainToolbar &&
+            !fixture.findChild<QToolBar*>("tools-toolbar") && fixture.compareButton && fixture.jsonButton &&
+            mainToolbar->isAncestorOf(fixture.compareButton) && mainToolbar->isAncestorOf(fixture.jsonButton),
+            "The Compare and JSON tool groups did not collapse into the single main toolbar row.");
+        check(fixture.jsonButton->menu() && fixture.compareButton->menu() &&
+            fixture.jsonButton->menu()->actions().contains(fixture.commands.at("json_view_graph")) &&
+            fixture.compareButton->menu()->actions().contains(fixture.commands.at("next_difference")) &&
+            fixture.compareButton->menu()->actions().contains(fixture.commands.at("comparison_settings")),
+            "The secondary Compare and JSON options are missing from their hover menus.");
+        check(fixture.jsonButton->isChecked() && fixture.jsonButton->isCheckable() &&
+            fixture.compareButton->isChecked() == fixture.commands.at("toggle_comparison")->isChecked(),
+            "The tool group buttons did not mirror the checked state of their primary commands.");
         fixture.jsonPanel->toggleNode(7);
         check(fixture.jsonPanel->graphCardCount() == 3 && fixture.jsonPanel->graphRowCount() == 7,
             "Collapsing a nested container did not remove its card.");
@@ -2492,7 +2563,8 @@ private:
     QDockWidget* dock = nullptr;
     QListWidget* documentList = nullptr;
     SearchDialog* search = nullptr;
-    QToolBar* toolsBar = nullptr;
+    ToolGroupButton* compareButton = nullptr;
+    ToolGroupButton* jsonButton = nullptr;
     bool bufferSearchRunning = false;
     bool bufferCountOnly = false;
     QList<std::uint64_t> bufferSearchQueue;

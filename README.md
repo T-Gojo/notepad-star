@@ -26,8 +26,8 @@ identity.
 ## Run it
 
 Double-click **`Open Notepad Star.cmd`** in the repository root, or open
-`dist\windows-x64-0.1.0-rc.6\notepad-star.exe` in File Explorer. The optional
-installer is `dist\notepad-star-windows-x64-0.1.0-rc.6-candidate-setup.exe`.
+`dist\windows-x64-0.1.0-rc.7\notepad-star.exe` in File Explorer. The optional
+installer is `dist\notepad-star-windows-x64-0.1.0-rc.7-candidate-setup.exe`.
 
 `dist` and executables are Git-ignored, so file views configured to hide ignored
 files may not show them. An already running older window is left alone until you
@@ -132,13 +132,19 @@ narrow bookmark/fold strips instead of the former broad gray band.
 Reopen the left sidebar using the **Sidebar** toolbar button,
 **View > Document Sidebar**, or **Ctrl+Alt+L**. Closing the dock updates the toggle.
 
-A second **Tools** toolbar row holds the panel toggles: **Compare Tabs Panel**,
-Next/Previous Difference, Comparison Options, **JSON Inspector Panel**
-(`Ctrl+Alt+I`) and the **Tree / Graph / Pretty** selector. Each toggle turns its
-panel on *and* off, so nothing has to be dismissed from inside a panel. The
-JSON view selector lives on that toolbar rather than as tabs inside the panel, so
+The window chrome is **two bars**: the menu bar, then a single toolbar row. That
+row holds the file/edit icons, the **Sidebar** toggle, and the **Compare** and
+**JSON** tool groups. Each group button toggles its panel on *and* off; **hovering
+the button (or clicking its arrow) drops down the secondary options** instead of
+spending a third toolbar row on them:
+
+- **Compare**: Compare These Two Tabs, Next/Previous Difference, Swap Compared
+  Tabs, Comparison Options, Close Comparison.
+- **JSON**: the **Tree / Graph / Pretty** selector, Pretty JSON and Minify JSON.
+
+The JSON view selector lives in that menu rather than as tabs inside the panel, so
 the inspector shows only content. View toggles are disabled while the inspector
-is closed. The same toggles are in **Tools > JSON** and **Tools > Compare**.
+is closed. The same commands are in **Tools > JSON** and **Tools > Compare**.
 
 The **Language** menu groups entries by initial letter: hover **A**, **B**, **J**
 and so on to reveal the languages that start with that letter instead of one long

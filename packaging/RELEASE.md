@@ -1,6 +1,6 @@
 # Desktop release procedure
 
-The current version is **0.1.0-rc.6**. Release candidates are optimized builds for
+The current version is **0.1.0-rc.7**. Release candidates are optimized builds for
 controlled evaluation of the documented feature set, not a declaration of full
 Notepad++ parity or completion of every platform/release gate.
 
@@ -21,7 +21,7 @@ their optimized build and C++ exception cleanup. Unlike development builds, the
 candidate window has no developer banner. About/version output still identifies
 the candidate honestly.
 
-Windows output is `dist\windows-x64-0.1.0-rc.6`, plus its `candidate-setup.exe`.
+Windows output is `dist\windows-x64-0.1.0-rc.7`, plus its `candidate-setup.exe`.
 macOS output contains `Notepad Star.app`. Each package includes
 `release-manifest.json`, file hashes, version/profile/channel information, notices
 and release notes. A corresponding source ZIP is produced beside the package.
