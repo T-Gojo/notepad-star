@@ -129,8 +129,9 @@ smaller initial window. Preview and automated-test launches keep their explicit
 window sizing. The editor gutter sizes itself to the line count and font, with
 narrow bookmark/fold strips instead of the former broad gray band.
 
-Reopen the left sidebar using the **Sidebar** toolbar button,
-**View > Document Sidebar**, or **Ctrl+Alt+L**. Closing the dock updates the toggle.
+The left **Document Sidebar starts closed**. Open or close it with the **Sidebar**
+toolbar button, **View > Document Sidebar**, or **Ctrl+Alt+L**. Closing the dock
+updates the toggle.
 
 The window chrome is **two bars**: the menu bar, then a single toolbar row. That
 row holds the file/edit icons, the **Sidebar** toggle, and the **Compare** and
@@ -168,7 +169,10 @@ list. Non-alphabetic names are grouped under **#**.
   dark editor theme.
 
 Selecting a tree or graph node selects that exact source value in the editor.
-Copy JSON pointers or original value JSON with the buttons below the views.
+The footer is a single row: the JSON pointer field with **Copy pointer** and
+**Copy value** beside it. Inspector chrome stays on one line each — the status
+line, graph hint and footer are elided rather than wrapped, and the full text is
+in their tooltips — so the panel spends its height on the preview.
 JSON Inspector, Pretty JSON, Preview and Graph View also appear in a tab's
 right-click menu.
 

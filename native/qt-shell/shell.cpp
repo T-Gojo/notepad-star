@@ -422,6 +422,8 @@ public:
         dock->setWidget(documentList);
         addDockWidget(Qt::LeftDockWidgetArea, dock);
         resizeDocks({dock}, {170}, Qt::Horizontal);
+        // The sidebar starts closed; the toolbar button, View menu or Ctrl+Alt+L opens it.
+        dock->hide();
 
         search = new SearchDialog(this);
         query = search->findText;
@@ -475,7 +477,7 @@ public:
                 toolbar->addAction(action);
             }
         }
-        commands.at("document_list")->setChecked(true);
+        commands.at("document_list")->setChecked(!dock->isHidden());
         connect(dock, &QDockWidget::visibilityChanged, this, [this] {
             commands.at("document_list")->setChecked(!dock->isHidden());
         });
@@ -1992,6 +1994,11 @@ private:
         QTest::qWait(30);
         check(fixture.startMaximized() && fixture.isMaximized() && !fixture.isFullScreen(),
             "Default maximized startup was confused with full-screen mode.");
+        check(fixture.dock->isHidden() && !fixture.commands.at("document_list")->isChecked(),
+            "The document sidebar opened by itself instead of waiting for its toggle.");
+        fixture.commands.at("document_list")->trigger();
+        check(!fixture.dock->isHidden() && fixture.commands.at("document_list")->isChecked(),
+            "The sidebar could not be opened from View.");
         fixture.dock->close();
         check(fixture.dock->isHidden() && !fixture.commands.at("document_list")->isChecked(),
             "Closing the sidebar did not update its menu toggle.");
@@ -2035,6 +2042,19 @@ private:
         check(fixture.jsonPanel->view() == JsonView::Graph && !fixture.jsonPanel->findChild<QTabWidget*>() &&
             fixture.commands.at("json_view_graph")->isChecked() && !fixture.commands.at("json_view_tree")->isChecked(),
             "The JSON view selector did not move out of the panel into the toolbar.");
+        {
+            // Inspector chrome stays on single rows so the preview keeps the panel height.
+            auto* jsonStatus = fixture.jsonPanel->findChild<QLabel*>("json-status");
+            auto* jsonPointer = fixture.jsonPanel->findChild<QLineEdit*>("json-pointer");
+            auto* pointerCopy = fixture.jsonPanel->findChild<QPushButton*>("json-copy-pointer");
+            check(jsonStatus && !jsonStatus->wordWrap() &&
+                jsonStatus->sizeHint().height() <= jsonStatus->fontMetrics().height() + 4,
+                "The JSON inspector status line still wraps into several rows of chrome.");
+            check(jsonPointer && pointerCopy &&
+                jsonPointer->geometry().bottom() >= pointerCopy->geometry().top() &&
+                pointerCopy->geometry().bottom() >= jsonPointer->geometry().top(),
+                "The JSON pointer field and its copy buttons still occupy separate footer rows.");
+        }
         auto* mainToolbar = fixture.findChild<QToolBar*>("main-toolbar");
         const auto chromeRows = fixture.findChildren<QToolBar*>(QString(), Qt::FindDirectChildrenOnly);
         check(mainToolbar && chromeRows.size() == 1 && chromeRows.first() == mainToolbar &&
