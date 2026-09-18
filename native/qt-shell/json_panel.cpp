@@ -12,6 +12,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPainter>
 #include <QPainterPath>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -134,11 +135,47 @@ private:
 };
 
 namespace {
-QLabel* plainLabel(const QString& text, QWidget* parent) {
-    auto* label = new QLabel(text, parent);
-    label->setTextFormat(Qt::PlainText);
-    label->setWordWrap(true);
-    return label;
+// One-line status text: the panel is narrow, so wrapping would spend several rows of
+// preview height on chrome. The full text stays available through text() and the tooltip.
+class CompactLabel final : public QLabel {
+public:
+    explicit CompactLabel(const QString& text, QWidget* parent) : QLabel(text, parent) {
+        setTextFormat(Qt::PlainText);
+        setWordWrap(false);
+        setToolTip(text);
+        setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        QFont smaller = font();
+        if (smaller.pointSizeF() > 0) {
+            smaller.setPointSizeF(std::max(7.0, smaller.pointSizeF() - 0.5));
+            setFont(smaller);
+        }
+    }
+    QSize sizeHint() const override { return {0, fontMetrics().height() + 2}; }
+    QSize minimumSizeHint() const override { return {0, fontMetrics().height() + 2}; }
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter painter(this);
+        painter.setPen(palette().color(foregroundRole()));
+        const QString flat = QString(text()).replace('\n', QStringLiteral(" \xE2\x80\xA2 "));
+        painter.drawText(rect(), Qt::AlignLeft | Qt::AlignVCenter,
+            fontMetrics().elidedText(flat, Qt::ElideRight, rect().width()));
+    }
+};
+
+CompactLabel* plainLabel(const QString& text, QWidget* parent) {
+    return new CompactLabel(text, parent);
+}
+
+void showStatus(QLabel* label, const QString& text) {
+    label->setText(text);
+    label->setToolTip(text);
+}
+
+QPushButton* compactButton(const QString& text, QWidget* parent) {
+    auto* button = new QPushButton(text, parent);
+    button->setMaximumHeight(22);
+    button->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    return button;
 }
 }
 
@@ -146,7 +183,8 @@ JsonPanel::JsonPanel(QWidget* parent) : QWidget(parent) {
     setObjectName("json-inspector");
     setMinimumWidth(320);
     auto* layout = new QVBoxLayout(this);
-    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setContentsMargins(6, 4, 6, 4);
+    layout->setSpacing(4);
     status = plainLabel("JSON stays on this device. Edit the active tab to refresh the preview.", this);
     status->setObjectName("json-status");
     layout->addWidget(status);
@@ -157,9 +195,12 @@ JsonPanel::JsonPanel(QWidget* parent) : QWidget(parent) {
     auto* treePage = new QWidget;
     auto* treeLayout = new QVBoxLayout(treePage);
     treeLayout->setContentsMargins(0, 0, 0, 0);
+    treeLayout->setSpacing(4);
     filter = new QLineEdit;
     filter->setPlaceholderText("Find a key, value, or JSON pointer");
     filter->setAccessibleName("Filter JSON tree");
+    filter->setClearButtonEnabled(true);
+    filter->setMaximumHeight(24);
     treeLayout->addWidget(filter);
     tree = new QTreeWidget;
     tree->setObjectName("json-tree");
@@ -173,15 +214,16 @@ JsonPanel::JsonPanel(QWidget* parent) : QWidget(parent) {
     auto* graphPage = new QWidget;
     auto* graphLayout = new QVBoxLayout(graphPage);
     graphLayout->setContentsMargins(0, 0, 0, 0);
+    graphLayout->setSpacing(4);
     auto* controls = new QHBoxLayout;
     controls->setContentsMargins(0, 0, 0, 0);
+    controls->setSpacing(4);
     scene = new QGraphicsScene(this);
     graph = new GraphView(scene, graphPage);
     graph->setObjectName("json-graph");
     for (const auto& title : {QString("Zoom in"), QString("Zoom out"), QString("Fit"), QString("Collapse")}) {
-        auto* button = new QPushButton(title);
+        auto* button = compactButton(title, graphPage);
         button->setFlat(true);
-        button->setMaximumHeight(24);
         controls->addWidget(button);
         connect(button, &QPushButton::clicked, this, [this, title] {
             if (title == "Fit") fitGraph();
@@ -197,16 +239,17 @@ JsonPanel::JsonPanel(QWidget* parent) : QWidget(parent) {
             }
         });
     }
-    controls->addStretch();
-    graphLayout->addLayout(controls);
+    // The graph hint shares the zoom row instead of claiming a row of its own.
     graphStatus = plainLabel("Double-click a nested key to expand or collapse it. Drag empty space to pan.", graphPage);
-    graphLayout->addWidget(graphStatus);
+    controls->addWidget(graphStatus, 1);
+    graphLayout->addLayout(controls);
     graphLayout->addWidget(graph, 1);
     pages->addWidget(graphPage);
 
     auto* prettyPage = new QWidget;
     auto* prettyLayout = new QVBoxLayout(prettyPage);
     prettyLayout->setContentsMargins(0, 0, 0, 0);
+    prettyLayout->setSpacing(4);
     pretty = new QPlainTextEdit;
     pretty->setObjectName("json-pretty-preview");
     pretty->setReadOnly(true);
@@ -214,26 +257,39 @@ JsonPanel::JsonPanel(QWidget* parent) : QWidget(parent) {
     pretty->setLineWrapMode(QPlainTextEdit::NoWrap);
     highlighter = new JsonHighlighter(pretty->document());
     prettyLayout->addWidget(pretty, 1);
-    copyPretty = new QPushButton("Copy pretty JSON");
+    auto* prettyRow = new QHBoxLayout;
+    prettyRow->setContentsMargins(0, 0, 0, 0);
+    prettyRow->setSpacing(4);
+    prettyRow->addStretch();
+    copyPretty = compactButton("Copy pretty JSON", prettyPage);
     copyPretty->setObjectName("json-copy-pretty");
     copyPretty->setEnabled(false);
-    prettyLayout->addWidget(copyPretty);
+    prettyRow->addWidget(copyPretty);
+    prettyLayout->addLayout(prettyRow);
     connect(copyPretty, &QPushButton::clicked, this, [this] { QApplication::clipboard()->setText(pretty->toPlainText()); });
     pages->addWidget(prettyPage);
 
+    // Pointer and its copy actions share one compact footer row.
+    auto* footer = new QHBoxLayout;
+    footer->setContentsMargins(0, 0, 0, 0);
+    footer->setSpacing(4);
     pointer = new QLineEdit;
+    pointer->setObjectName("json-pointer");
     pointer->setReadOnly(true);
     pointer->setPlaceholderText("Select a node to locate its source");
     pointer->setAccessibleName("Selected JSON pointer");
-    layout->addWidget(pointer);
-    auto* copyRow = new QHBoxLayout;
-    copyPath = new QPushButton("Copy pointer");
-    copyValue = new QPushButton("Copy value JSON");
+    pointer->setMaximumHeight(24);
+    footer->addWidget(pointer, 1);
+    copyPath = compactButton("Copy pointer", this);
+    copyPath->setObjectName("json-copy-pointer");
+    copyValue = compactButton("Copy value", this);
+    copyValue->setObjectName("json-copy-value");
+    copyValue->setToolTip("Copy the original JSON of the selected value");
     copyPath->setEnabled(false);
     copyValue->setEnabled(false);
-    copyRow->addWidget(copyPath);
-    copyRow->addWidget(copyValue);
-    layout->addLayout(copyRow);
+    footer->addWidget(copyPath);
+    footer->addWidget(copyValue);
+    layout->addLayout(footer);
     connect(copyPath, &QPushButton::clicked, this, [this] {
         if (auto* item = tree->currentItem())
             QApplication::clipboard()->setText(nodes[item->data(0, Qt::UserRole).toInt()].toObject()["path"].toString());
@@ -282,7 +338,7 @@ void JsonPanel::setError(const QString& error) {
     copyPretty->setEnabled(false);
     copyPath->setEnabled(false);
     copyValue->setEnabled(false);
-    status->setText(error + "\nThe source document was not changed.");
+    showStatus(status, error + "\nThe source document was not changed.");
 }
 
 void JsonPanel::setPreview(const QJsonObject& model, const QString& title, const QByteArray& text, bool reset) {
@@ -312,7 +368,7 @@ void JsonPanel::setPreview(const QJsonObject& model, const QString& title, const
     copyPath->setEnabled(false);
     copyValue->setEnabled(false);
     const auto duplicates = model["duplicate_keys"].toInt();
-    status->setText(QString("%1 | %2 JSON nodes | Local live preview").arg(title).arg(nodes.size()) +
+    showStatus(status, QString("%1 | %2 JSON nodes | Local live preview").arg(title).arg(nodes.size()) +
         (duplicates ? QString("\n%1 duplicate key(s) are shown separately; their JSON pointers may be ambiguous.").arg(duplicates) : QString()));
     filterTree();
     bool stale = reset;
@@ -389,7 +445,7 @@ void JsonPanel::toggleNode(int index) {
     else expanded.insert(index);
     if (!open && countCards(expanded) > cardLimit) {
         expanded.remove(index);
-        graphStatus->setText(QString("Expanding this branch exceeds %1 visible graph cards. "
+        showStatus(graphStatus, QString("Expanding this branch exceeds %1 visible graph cards. "
             "Collapse another branch, or use the Tree view.").arg(cardLimit));
         return;
     }
@@ -423,10 +479,10 @@ void JsonPanel::drawGraph(bool fit) {
     const auto colors = scheme(darkTheme);
     graph->setBackgroundBrush(colors.background);
     if (nodes.isEmpty()) {
-        graphStatus->setText("No JSON to graph.");
+        showStatus(graphStatus, "No JSON to graph.");
         return;
     }
-    graphStatus->setText(QString("Double-click a nested key to expand or collapse it. Drag empty space to pan. "
+    showStatus(graphStatus, QString("Double-click a nested key to expand or collapse it. Drag empty space to pan. "
         "Up to %1 cards.").arg(cardLimit));
 
     QVector<int> order;
