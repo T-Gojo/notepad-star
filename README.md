@@ -444,6 +444,27 @@ bookmark markers themselves are not undo records, matching the reference.
 Up to 10,000 affected lines and 16 MiB of inserted/copied text are supported.
 Bookmarks are included in checksummed sessions/recovery, with explicit bounds.
 
+**Edit > Paste Image** (Ctrl+Shift+V) pastes a bitmap held on the clipboard
+directly into the editor canvas, the way a word processor does. Plain **Paste**
+(Ctrl+V) routes to the same action when the clipboard holds an image and no text
+or file URLs, so a screenshot can be pasted without an extra keystroke; a
+clipboard that also carries text keeps the existing plain-text paste. No dialog
+is shown: the bitmap is written as a PNG beside the current document, into
+`<document-name>.images/`, or into `pasted-images/` under the application data
+folder for untitled notes. Any number of images can be pasted, each on its own
+line, and each is drawn over that line at its stored size while blank
+annotations reserve the rows underneath it. Click an image to select it, then
+drag the grip in its bottom-right corner to resize; the aspect ratio is locked
+unless Shift is held, and the resize is a single undo action. Documents stay
+plain text and fully round-trippable: Markdown files receive
+`![pasted image](path =WxH)`, HTML files an escaped
+`<img src="path" alt="..." width="W" height="H">` tag, and every other document
+an `[[image:path|WxH]]` token; a line is only written when it parses back to the
+same values. Paths inside the document's folder are written relative to it.
+Images are limited to 64 megapixels and 64 MiB encoded, decoded pixmaps are
+cached per path, modification time and size, and inline layout is suspended
+while aligned file comparison owns the annotation rows.
+
 **Settings > Import Preferences** accepts Notepad++ `config.xml` / `stylers.xml`
 or a Notepad Star JSON profile. XML import previews supported changes and lists
 unmapped settings; it never imports or executes program/plugin definitions.

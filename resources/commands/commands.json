@@ -173,6 +173,7 @@
   {"id":"cut","menu":"Edit","label":"Cu&t","shortcut":"Ctrl+X","upstream":"IDM_EDIT_CUT","checkable":false},
   {"id":"copy","menu":"Edit","label":"&Copy","shortcut":"Ctrl+C","upstream":"IDM_EDIT_COPY","checkable":false},
   {"id":"paste","menu":"Edit","label":"&Paste","shortcut":"Ctrl+V","upstream":"IDM_EDIT_PASTE","checkable":false},
+  {"id":"paste_image","menu":"Edit","label":"Paste &Image","shortcut":"Ctrl+Shift+V","upstream":null,"checkable":false},
   {"id":"select_all","menu":"Edit","label":"Select &All","shortcut":"Ctrl+A","upstream":"IDM_EDIT_SELECTALL","checkable":false},
   {"id":"find","menu":"Search","label":"&Find...","shortcut":"Ctrl+F","upstream":"IDM_SEARCH_FIND","checkable":false},
   {"id":"find_next","menu":"Search","label":"Find &Next","shortcut":"F3","upstream":"IDM_SEARCH_FINDNEXT","checkable":false},

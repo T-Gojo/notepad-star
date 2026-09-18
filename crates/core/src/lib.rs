@@ -39,6 +39,7 @@ pub enum CommandId {
     Cut,
     Copy,
     Paste,
+    PasteImage,
     SelectAll,
     Find,
     FindNext,

@@ -4,7 +4,7 @@
   {"menu":"File/Close Multiple Documents","commands":["close_others","close_unpinned","close_left","close_right","close_unchanged"]},
   {"menu":"File/Session","commands":["load_session","save_session","recover"]},
   {"menu":"File","commands":["print","print_preview","exit"]},
-  {"menu":"Edit","commands":["undo","redo","cut","copy","paste","select_all"]},
+  {"menu":"Edit","commands":["undo","redo","cut","copy","paste","paste_image","select_all"]},
   {"menu":"Edit/Convert Case to","commands":["uppercase","lowercase","proper_case","proper_blend","sentence_case","sentence_blend","invert_case"]},
   {"menu":"Edit/Line Operations","commands":["duplicate_line","duplicate_selection","delete_line","move_line_up","move_line_down","join_lines","split_lines","blank_line_above","blank_line_below","sort_ascending","sort_descending","numeric_sort","reverse_lines","remove_duplicates","remove_consecutive_duplicates","remove_empty_lines","remove_blank_lines"]},
   {"menu":"Edit/Blank Operations","commands":["trim_trailing","trim_leading","trim_both","tabs_to_spaces","leading_spaces_to_tabs"]},

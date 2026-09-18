@@ -18,6 +18,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QBuffer>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QDockWidget>
@@ -68,6 +69,7 @@
 #include <QSet>
 #include <QInputDialog>
 #include <QIcon>
+#include <QImage>
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -108,6 +110,7 @@
 #include <cstring>
 #include <cctype>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <vector>
 #include <array>
@@ -399,6 +402,13 @@ public:
             if (comparisonPreferences().value("auto_recompare").toBool(true)) refreshComparison();
             else invalidateComparison();
         });
+        inlineImageTimer = new QTimer(this);
+        inlineImageTimer->setSingleShot(true);
+        inlineImageTimer->setInterval(80);
+        connect(inlineImageTimer, &QTimer::timeout, this, [this] {
+            if (tearingDown || closingWindow) return;
+            guarded([&] { flushInlineImages(); });
+        });
         tabs->tabDropped = [this](quint64 id, int group) { guarded([&] { moveDocumentToGroup(id, group); }); };
         comparisonStatus = new QLabel(this);
         comparisonStatus->setTextFormat(Qt::PlainText);
@@ -636,6 +646,7 @@ public:
     ~Shell() override {
         tearingDown = true;
         if (toolsTimer) toolsTimer->stop();
+        if (inlineImageTimer) inlineImageTimer->stop();
         if (jsonPanel) jsonPanel->selectSource = {};
         if (managementTask) delete managementTask.data();
         if (activeSearch) delete activeSearch.data();
@@ -1809,6 +1820,80 @@ public:
         check(text(repeatPane).isEmpty(), "Generated date/time insertion was not undoable.");
         check(!formattedDateTime(fixedDate, "date_time_short").isEmpty() &&
             !formattedDateTime(fixedDate, "date_time_long").isEmpty(), "Locale date/time formats were unavailable.");
+        const auto imageFolder = testDirectory->filePath("pasted");
+        check(QDir().mkpath(imageFolder), "Could not create the pasted-image test folder.");
+        auto& repeatImages = static_cast<WorkspaceEditor*>(repeatPane)->images;
+        const auto wrapModeBefore = repeatPane->send(SCI_GETWRAPMODE);
+        repeatPane->send(SCI_SETWRAPMODE, SC_WRAP_WORD);
+        QImage pastedImage(40, 120, QImage::Format_ARGB32);
+        pastedImage.fill(QColor(12, 34, 56));
+        QApplication::clipboard()->setImage(pastedImage);
+        check(clipboardHoldsOnlyImage(), "An image-only clipboard was not routed to the image paste.");
+        QApplication::clipboard()->setText("plain");
+        check(!clipboardHoldsOnlyImage(), "A text clipboard must keep the plain-text paste behavior.");
+        pasteImageAs(pastedImage, imageFolder);
+        const auto pastedRow = repeatPane->send(SCI_LINEFROMPOSITION, repeatPane->send(SCI_GETCURRENTPOS)) - 1;
+        const auto pastedEntry = parseInlineImageLine(inlineImageLineText(repeatPane, pastedRow));
+        check(pastedEntry && pastedEntry->flavor == InlineImageFlavor::Token &&
+            pastedEntry->width == pastedImage.width() && pastedEntry->height == pastedImage.height(),
+            "Pasting an image did not insert a renderable inline-image line.");
+        const QFileInfo pastedFile(repeatImages.resolve(pastedEntry->reference));
+        check(pastedFile.isFile() && pastedFile.absolutePath() == QFileInfo(imageFolder).absoluteFilePath(),
+            "Pasting an image did not write the file into the folder that holds the document's images.");
+        const QImage writtenImage(pastedFile.absoluteFilePath());
+        check(writtenImage.size() == pastedImage.size() && writtenImage.pixel(0, 0) == pastedImage.pixel(0, 0),
+            "Pasting an image did not write a decodable file.");
+        check(repeatPane->send(SCI_ANNOTATIONGETLINES, pastedRow) > 0 && repeatImages.placements().size() == 1,
+            "An inline image did not reserve the rows it is drawn into.");
+        const auto pastedPlacement = repeatImages.placements().front();
+        const auto canvas = repeatPane->viewport()->grab().toImage();
+        const QPoint sample(static_cast<int>(pastedPlacement.image.center().x() * canvas.devicePixelRatio()),
+            static_cast<int>(pastedPlacement.image.center().y() * canvas.devicePixelRatio()));
+        check(canvas.rect().contains(sample) && QColor(canvas.pixel(sample)) == QColor(12, 34, 56),
+            "An inline image was not painted inside the editor canvas.");
+        const auto backValue = repeatPane->send(SCI_STYLEGETBACK, STYLE_DEFAULT);
+        const QColor editorBackground(static_cast<int>(backValue & 0xff), static_cast<int>((backValue >> 8) & 0xff),
+            static_cast<int>((backValue >> 16) & 0xff));
+        const auto ratio = canvas.devicePixelRatio();
+        const int bandY = static_cast<int>((pastedPlacement.image.top() +
+            static_cast<int>(repeatPane->send(SCI_TEXTHEIGHT, static_cast<uptr_t>(pastedRow))) / 2) * ratio);
+        bool referenceHidden = bandY >= 0 && bandY < canvas.height();
+        for (int x = static_cast<int>((pastedPlacement.image.right() + 2) * ratio); x < canvas.width(); ++x)
+            if (QColor(canvas.pixel(x, bandY)) != editorBackground) referenceHidden = false;
+        check(referenceHidden, "A wrapped inline-image reference stayed visible beside the image.");
+        repeatPane->send(SCI_SETWRAPMODE, wrapModeBefore);
+        auto resizedEntry = *pastedEntry;
+        resizedEntry.width = 120;
+        resizedEntry.height = 90;
+        resizeInlineImage(current(), repeatPane, pastedRow, resizedEntry);
+        const auto storedEntry = parseInlineImageLine(inlineImageLineText(repeatPane, pastedRow));
+        check(storedEntry && storedEntry->width == 120 && storedEntry->height == 90,
+            "Resizing an inline image did not rewrite its recorded size.");
+        dispatch("undo");
+        const auto restoredEntry = parseInlineImageLine(inlineImageLineText(repeatPane, pastedRow));
+        check(restoredEntry && restoredEntry->width == pastedImage.width(),
+            "Resizing an inline image was not undoable.");
+        dispatch("undo");
+        check(text(repeatPane).isEmpty() && repeatImages.placements().empty(),
+            "A pasted inline image was not undoable.");
+        check(!parseInlineImageLine("[[image:art/shot.png|0x10]]") && !parseInlineImageLine("plain text"),
+            "An unusable inline-image line was accepted.");
+        const InlineImageLine markdownEntry{InlineImageFlavor::Markdown, "art/a b(1).png", "pasted image", 320, 240};
+        check(formatInlineImageLine(markdownEntry) == "![pasted image](<art/a b(1).png> =320x240)" &&
+            inlineImageLineRoundTrips(markdownEntry),
+            "Markdown documents did not receive a bracketed, sized Markdown image line.");
+        const InlineImageLine htmlEntry{InlineImageFlavor::Html, "art/shot.png", "pasted image", 320, 240};
+        check(formatInlineImageLine(htmlEntry) ==
+            "<img src=\"art/shot.png\" alt=\"pasted image\" width=\"320\" height=\"240\">" &&
+            inlineImageLineRoundTrips(htmlEntry),
+            "HTML documents did not receive a sized img line.");
+        check(inlineImageFlavorFor("/notes/readme.md") == InlineImageFlavor::Markdown &&
+            inlineImageFlavorFor("/notes/page.html") == InlineImageFlavor::Html &&
+            inlineImageFlavorFor({}) == InlineImageFlavor::Token,
+            "Inline images did not follow the markup of the document that holds them.");
+        check(inlineImageReference("/notes/readme.md", "/notes/art/shot.png") == "art/shot.png" &&
+            inlineImageReference({}, "/pictures/shot.png") == "/pictures/shot.png",
+            "Inline image references were not written relative to the document when possible.");
         const QByteArray summaryFixture("\xc3\xa9 \xf0\x9f\x9a\x80\r\na\rb\n");
         repeatPane->sends(SCI_ADDTEXT, summaryFixture.size(), summaryFixture.constData());
         bool summaryShown = false;
@@ -2533,6 +2618,7 @@ private:
         bool monitoring = false;
         bool previousReadOnly = false;
         QString functionKey;
+        bool inlineImages = false;
     };
     std::optional<languages::LanguageCatalog> catalog;
     QMap<QString, std::optional<languages::CompletionData>> completionCache;
@@ -2546,6 +2632,8 @@ private:
     QJsonObject comparisonResult;
     bool comparisonEnabled = false;
     QTimer* toolsTimer = nullptr;
+    QTimer* inlineImageTimer = nullptr;
+    std::set<std::uint64_t> pendingInlineImages;
     QDockWidget* jsonDock = nullptr;
     JsonPanel* jsonPanel = nullptr;
     std::uint64_t jsonDocument = 0;
@@ -4968,6 +5056,7 @@ private:
                 refresh();
                 refreshWatches();
             });
+            queueInlineImages(id);
         });
         connect(editor, &ScintillaEditBase::savePointChanged, this, [this, id](bool dirty) {
             if (!tearingDown) guarded([&] {
@@ -4980,9 +5069,13 @@ private:
         });
         for (auto* pane : {editor, clone}) {
             pane->installEventFilter(this);
+            pane->images.commit = [this, id, pane](sptr_t line, InlineImageLine image) {
+                guarded([&] { for (auto& view : views) if (view.id == id) resizeInlineImage(view, pane, line, image); });
+            };
             connect(pane, &QObject::destroyed, this, [this, pane] { composingEditors.remove(pane); });
             connect(pane, &ScintillaEditBase::zoom, this, [this, pane, id](int zoom) {
                 updateGutter(pane);
+                queueInlineImages(id);
                 if (comparisonEnabled && comparisonAligned && !synchronizingComparison &&
                     (id == comparisonLeft || id == comparisonTarget)) {
                     const QScopedValueRollback<bool> syncing(synchronizingComparison, true);
@@ -5063,6 +5156,7 @@ private:
         normalizePinnedOrder();
         editor->setFocus();
         recoveryPending = true;
+        for (auto& view : views) if (view.id == id) refreshInlineImages(view);
         refresh();
     }
     void refresh() {
@@ -5254,6 +5348,7 @@ private:
         if (!document_dirty(*controller, view.id)) view.primary->send(SCI_SETSAVEPOINT);
         if (!copy && oldPath.isEmpty() && view.udlXml.isEmpty()) applyLexer(view, detectedLexer(pathText(document_path(*controller, view.id))));
         if (!copy) view.diskChanged = false;
+        refreshInlineImages(view);
         refresh();
         refreshWatches();
         checkpointNow();
@@ -5690,6 +5785,189 @@ private:
             pane->send(SCI_GETANCHOR) == anchor && pane->send(SCI_GETCURRENTPOS) == caret,
             "The document or selection changed during date/time entry.");
         insertGeneratedText(formattedDateTime(QDateTime::currentDateTime(), mode, pattern));
+    }
+    // Candidate lines are found in the engine so untouched documents cost one scan, not one per line.
+    std::set<sptr_t> inlineImageCandidateLines(ScintillaEditBase* pane) {
+        std::set<sptr_t> lines;
+        const auto length = pane->send(SCI_GETLENGTH);
+        const auto flags = pane->send(SCI_GETSEARCHFLAGS);
+        const auto targetStart = pane->send(SCI_GETTARGETSTART);
+        const auto targetEnd = pane->send(SCI_GETTARGETEND);
+        pane->send(SCI_SETSEARCHFLAGS, SCFIND_MATCHCASE);
+        for (const char* needle : {"[[image:", "![", "<img "}) {
+            sptr_t position = 0;
+            while (position < length && lines.size() < 1024) {
+                pane->send(SCI_SETTARGETRANGE, static_cast<uptr_t>(position), length);
+                const auto found = pane->sends(SCI_SEARCHINTARGET, std::strlen(needle), needle);
+                if (found < 0) break;
+                const auto line = pane->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(found));
+                lines.insert(line);
+                position = pane->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(line)) + 1;
+            }
+        }
+        pane->send(SCI_SETSEARCHFLAGS, flags);
+        pane->send(SCI_SETTARGETRANGE, static_cast<uptr_t>(targetStart), targetEnd);
+        return lines;
+    }
+    // Blank annotations reserve the rows an image needs; aligned comparison owns annotations while it runs.
+    void refreshInlineImages(DocumentView& view) {
+        if (tearingDown) return;
+        const auto documentPath = pathText(document_path(*controller, view.id));
+        const auto folder = documentPath.isEmpty() ? QString() : QFileInfo(documentPath).absolutePath();
+        auto* primary = static_cast<WorkspaceEditor*>(view.primary);
+        auto* clone = static_cast<WorkspaceEditor*>(view.clone);
+        for (auto* pane : {primary, clone}) pane->images.folder = folder;
+        if (comparisonEnabled && comparisonAligned) return;
+        const int textHeight = static_cast<int>(primary->send(SCI_TEXTHEIGHT, 0));
+        std::vector<std::pair<sptr_t, int>> reserved;
+        if (primary->send(SCI_GETLENGTH) <= 32 * 1024 * 1024)
+            for (const auto line : inlineImageCandidateLines(primary)) {
+                const auto image = parseInlineImageLine(inlineImageLineText(primary, line));
+                if (!image) continue;
+                const int wrapped = std::max(1, static_cast<int>(primary->send(SCI_WRAPCOUNT, static_cast<uptr_t>(line))));
+                reserved.emplace_back(line, std::max(0, primary->images.rowsFor(*image, textHeight) - wrapped));
+            }
+        if (reserved.empty() && !view.inlineImages) return;
+        view.inlineImages = !reserved.empty();
+        for (auto* pane : {primary, clone}) pane->send(SCI_ANNOTATIONSETVISIBLE, ANNOTATION_STANDARD);
+        primary->send(SCI_STYLESETBACK, 251, primary->send(SCI_STYLEGETBACK, STYLE_DEFAULT));
+        primary->send(SCI_ANNOTATIONCLEARALL);
+        for (const auto& [line, rows] : reserved) {
+            if (rows <= 0) continue;
+            const QByteArray blank = QByteArray(" ") + QByteArray(rows - 1, '\n');
+            primary->sends(SCI_ANNOTATIONSETTEXT, static_cast<uptr_t>(line), blank.constData());
+            primary->send(SCI_ANNOTATIONSETSTYLE, static_cast<uptr_t>(line), 251);
+        }
+        for (auto* pane : {primary, clone}) pane->viewport()->update();
+    }
+    void queueInlineImages(std::uint64_t id) {
+        pendingInlineImages.insert(id);
+        if (inlineImageTimer) inlineImageTimer->start();
+    }
+    void flushInlineImages() {
+        const auto pending = pendingInlineImages;
+        pendingInlineImages.clear();
+        for (auto& view : views) if (pending.count(view.id) > 0) refreshInlineImages(view);
+    }
+    // A resize only ever rewrites the size of a line that still holds the same image.
+    void resizeInlineImage(DocumentView& view, ScintillaEditBase* pane, sptr_t line, const InlineImageLine& image) {
+        if (tearingDown || macroPlaybackActive || macroRecording || pane->send(SCI_GETREADONLY)) return;
+        if (line < 0 || line >= pane->send(SCI_GETLINECOUNT)) return;
+        const auto existing = parseInlineImageLine(inlineImageLineText(pane, line));
+        if (!existing || existing->flavor != image.flavor || existing->reference != image.reference) return;
+        auto updated = *existing;
+        updated.width = image.width;
+        updated.height = image.height;
+        if (updated.width == existing->width && updated.height == existing->height) return;
+        if (!inlineImageLineRoundTrips(updated)) return;
+        const auto sizedLine = formatInlineImageLine(updated).toUtf8();
+        const auto targetStart = pane->send(SCI_GETTARGETSTART);
+        const auto targetEnd = pane->send(SCI_GETTARGETEND);
+        pane->send(SCI_BEGINUNDOACTION);
+        pane->send(SCI_SETTARGETRANGE, pane->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line)),
+            pane->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(line)));
+        pane->sends(SCI_REPLACETARGET, static_cast<uptr_t>(sizedLine.size()), sizedLine.constData());
+        pane->send(SCI_ENDUNDOACTION);
+        pane->send(SCI_SETTARGETRANGE, static_cast<uptr_t>(targetStart), targetEnd);
+        refreshInlineImages(view);
+    }
+    static QImage clipboardImage() {
+        const auto* mime = QApplication::clipboard()->mimeData();
+        if (!mime || !mime->hasImage()) return {};
+        return qvariant_cast<QImage>(mime->imageData());
+    }
+    // Ctrl+V keeps its text behavior whenever the clipboard also carries text or file URLs.
+    static bool clipboardHoldsOnlyImage() {
+        const auto* mime = QApplication::clipboard()->mimeData();
+        return mime && mime->hasImage() && !mime->hasText() && !mime->hasUrls() && !clipboardImage().isNull();
+    }
+    // Pasted images become sibling files so the document stays plain text while the canvas shows the picture.
+    QString inlineImageFolder() {
+        const auto documentPath = pathText(document_path(*controller, current().id));
+        if (documentPath.isEmpty()) {
+            const auto base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+            QDir root(base.isEmpty() ? QDir::tempPath() : base);
+            check(root.mkpath("pasted-images"), "The folder for pasted images could not be created.");
+            return root.absoluteFilePath("pasted-images");
+        }
+        const QFileInfo info(documentPath);
+        QDir root(info.absolutePath());
+        const auto name = info.completeBaseName() + ".images";
+        check(root.mkpath(name), "The folder for pasted images could not be created beside the document.");
+        return root.absoluteFilePath(name);
+    }
+    static QString unusedImagePath(const QString& folder) {
+        const QDir root(folder);
+        const auto stamp = QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
+        for (int attempt = 1; attempt <= 999; ++attempt) {
+            const auto name = attempt == 1 ? "image-" + stamp + ".png" :
+                "image-" + stamp + "-" + QString::number(attempt) + ".png";
+            if (!QFileInfo::exists(root.filePath(name))) return root.absoluteFilePath(name);
+        }
+        throw std::runtime_error("This folder already holds every pasted-image name for the current second.");
+    }
+    static QString inlineImageReference(const QString& documentPath, const QString& imagePath) {
+        QString target = imagePath;
+        if (!documentPath.isEmpty()) {
+            const auto relative = QFileInfo(documentPath).dir().relativeFilePath(imagePath);
+            if (!relative.isEmpty() && !relative.startsWith("..")) target = relative;
+        }
+        return target.replace('\\', '/');
+    }
+    static QSize fittedImageSize(ScintillaEditBase* pane, QSize natural) {
+        const int limit = std::clamp(pane->viewport()->width() - 48, 64, 720);
+        if (natural.width() <= limit || natural.width() <= 0) return natural;
+        return QSize(limit, std::max(1, static_cast<int>(static_cast<qint64>(natural.height()) * limit / natural.width())));
+    }
+    // An image owns its own line so the rows reserved for it never split a line of prose.
+    static QByteArray inlineImagePayload(ScintillaEditBase* pane, const QString& line) {
+        const auto mode = pane->send(SCI_GETEOLMODE);
+        const QByteArray eol = mode == SC_EOL_CR ? "\r" : mode == SC_EOL_CRLF ? "\r\n" : "\n";
+        const auto start = pane->send(SCI_GETSELECTIONSTART);
+        QByteArray payload;
+        if (start != pane->send(SCI_POSITIONFROMLINE, pane->send(SCI_LINEFROMPOSITION, start))) payload += eol;
+        payload += line.toUtf8();
+        payload += eol;
+        return payload;
+    }
+    void pasteImageAs(const QImage& image, const QString& folder) {
+        check(!macroPlaybackActive && !macroRecording, "Finish the macro before pasting an image.");
+        check(!image.isNull() && image.width() > 0 && image.height() > 0, "The clipboard does not contain a readable image.");
+        check(static_cast<qint64>(image.width()) * image.height() <= 64LL * 1024 * 1024,
+            "The clipboard image exceeds the 64-megapixel paste limit.");
+        auto* pane = activeEditor();
+        check(!pane->send(SCI_GETREADONLY), "Document is read-only.");
+        check(QFileInfo(folder).isDir(), "The folder for pasted images does not exist.");
+        const auto absolute = unusedImagePath(folder);
+        check(disk_updated_documents(*controller, filePath(absolute)).empty(),
+            "That image file is open in this editor; paste again.");
+        const auto documentPath = pathText(document_path(*controller, current().id));
+        InlineImageLine entry;
+        entry.flavor = inlineImageFlavorFor(documentPath);
+        entry.reference = inlineImageReference(documentPath, absolute);
+        if (entry.flavor != InlineImageFlavor::Token) entry.alt = "pasted image";
+        const auto size = fittedImageSize(pane, image.size());
+        entry.width = size.width();
+        entry.height = size.height();
+        check(inlineImageLineRoundTrips(entry), "The pasted image path cannot be written on a single line.");
+        QByteArray encoded;
+        {
+            QBuffer buffer(&encoded);
+            check(buffer.open(QIODevice::WriteOnly) && image.save(&buffer, "PNG"),
+                "The clipboard image could not be encoded as PNG.");
+        }
+        check(!encoded.isEmpty() && encoded.size() <= 64 * 1024 * 1024, "The encoded image exceeds the 64 MiB paste limit.");
+        QSaveFile file(absolute);
+        check(file.open(QIODevice::WriteOnly) && file.write(encoded) == encoded.size() && file.commit(),
+            "The pasted image could not be written to disk.");
+        insertGeneratedText(inlineImagePayload(pane, formatInlineImageLine(entry)));
+        refreshInlineImages(current());
+    }
+    void pasteImage() {
+        const auto image = clipboardImage();
+        check(!image.isNull(), "The clipboard does not contain an image. Copy an image, then paste it here.");
+        pasteImageAs(image, inlineImageFolder());
+        statusBar()->showMessage("Pasted the image into the document. Click it, then drag its corner grip to resize.");
     }
     void documentSummary() {
         auto* pane = activeEditor();
@@ -6301,6 +6579,7 @@ private:
         if (id == "duplicate_line" || id == "duplicate_selection") { duplicateText(id == "duplicate_selection"); return; }
         if (id == "document_summary") { documentSummary(); return; }
         if (id == "date_time_short" || id == "date_time_long" || id == "date_time_custom") { insertDateTime(id); return; }
+        if (id == "paste_image" || (id == "paste" && clipboardHoldsOnlyImage())) { pasteImage(); return; }
         if (id == "join_lines" || id == "split_lines" || id == "blank_line_above" || id == "blank_line_below") {
             lineLayout(id); return;
         }
