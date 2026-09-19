@@ -1,8 +1,18 @@
 Notepad Star 0.1.0 release candidate
 
-rc.6 reworks the tool panels around the user's left/right layout. Tree, Graph
-and Pretty selection moved from tabs inside the JSON Inspector to a new Tools
-toolbar row, alongside toggles that open and close the Compare and JSON panels.
+rc.7 starts with the left Document sidebar closed; open it from the sidebar
+toolbar button or View > Document list, and the choice is obvious instead of
+consuming editor width on first launch. The JSON Inspector chrome is now
+compact: status and graph hints stay on a single elided line with the full text
+in a tooltip, the graph hint shares the zoom/fit/collapse row, and the JSON
+pointer field sits on one footer row with its Copy pointer and Copy value
+buttons. More of the panel is the tree, graph or pretty view itself. rc.7 also
+includes image paste handling in the editor.
+
+Includes rc.6's rework of the tool panels around the left/right layout. Tree,
+Graph and Pretty selection moved from tabs inside the JSON Inspector to a new
+Tools toolbar row, alongside toggles that open and close the Compare and JSON
+panels.
 The graph now draws one card per object/array listing its own key/value rows,
 with nested keys linked to their own card, instead of one card per value. Pretty
 JSON is syntax-coloured by default and follows the light/dark theme. The Language
