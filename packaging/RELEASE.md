@@ -43,6 +43,17 @@ including installer lifecycle, native platform behavior, physical input and
 accessibility, and acceptance of the supported feature set. Do not mark a gate
 passed merely because an unsigned build exists.
 
+Two gates cover the security posture of the shipped bytes:
+
+- `dependency_vulnerability_audit` — record the advisory scan of the committed
+  `Cargo.lock` and of the pinned Qt/Scintilla/Lexilla/Boost/pugixml sources, with
+  the date, the advisory database revision and the disposition of every hit.
+- `exploit_mitigations_verified` — record that the produced binary carries the
+  mitigations configured in `native/CMakeLists.txt` and `.cargo/config.toml`
+  (`dumpbin /headers /loadconfig` on Windows for Control Flow Guard, DEP, ASLR
+  and high-entropy VA; `otool -hv` plus `codesign -d --entitlements -` on macOS
+  for PIE, the hardened runtime and the absence of loosening entitlements).
+
 The `Desktop release candidates` workflow builds both targets. On its disposable
 Windows runner, `windows\test-install.ps1` exercises install, running-app
 protection, reinstall, uninstall, and preservation of profile/unknown user files.

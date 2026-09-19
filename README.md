@@ -69,6 +69,7 @@ consumes, is in [docs/REPOSITORY-STRUCTURE.md](docs/REPOSITORY-STRUCTURE.md).
 - [Packaging guide](docs/PACKAGING.md) - developer packages, installers and signing hooks
 - [Release procedure](packaging/RELEASE.md) - versioned candidates and release gates
 - [Compatibility and open gates](docs/COMPATIBILITY.md) - inventory, boundaries and what is unfinished
+- [Security](SECURITY.md) - security model, review findings and how to report a vulnerability
 - [Repository structure](docs/REPOSITORY-STRUCTURE.md) - why the tree is laid out this way
 - [Brand kit](resources/brand/README.md) - logos, wordmarks and icons
 - [Contributing](CONTRIBUTING.md) - workflow and expectations

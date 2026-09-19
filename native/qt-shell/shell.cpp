@@ -1896,6 +1896,13 @@ public:
         check(inlineImageReference("/notes/readme.md", "/notes/art/shot.png") == "art/shot.png" &&
             inlineImageReference({}, "/pictures/shot.png") == "/pictures/shot.png",
             "Inline image references were not written relative to the document when possible.");
+        check(repeatImages.resolve("\\\\attacker\\share\\a.png").isEmpty() &&
+            repeatImages.resolve("//attacker/share/a.png").isEmpty() &&
+            repeatImages.resolve("\\\\?\\C:\\a.png").isEmpty() &&
+            repeatImages.resolve("http://attacker/a.png").isEmpty() &&
+            repeatImages.resolve("smb://attacker/a.png").isEmpty() &&
+            !repeatImages.resolve("art/shot.png").isEmpty(),
+            "A remote inline-image reference in untrusted document text was still dereferenced.");
         const QByteArray summaryFixture("\xc3\xa9 \xf0\x9f\x9a\x80\r\na\rb\n");
         repeatPane->sends(SCI_ADDTEXT, summaryFixture.size(), summaryFixture.constData());
         bool summaryShown = false;
