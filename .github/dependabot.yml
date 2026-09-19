@@ -11,3 +11,9 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+
+ # Maintain the Rust workspace dependencies that ship inside the desktop binary
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"

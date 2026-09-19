@@ -3,12 +3,16 @@
   "windows-x64": {
     "clean_machine_install_upgrade_uninstall": {"status": "pending", "evidence": ""},
     "physical_input_accessibility": {"status": "pending", "evidence": ""},
-    "supported_feature_acceptance": {"status": "pending", "evidence": ""}
+    "supported_feature_acceptance": {"status": "pending", "evidence": ""},
+    "dependency_vulnerability_audit": {"status": "pending", "evidence": ""},
+    "exploit_mitigations_verified": {"status": "pending", "evidence": ""}
   },
   "macos-arm64": {
     "native_build_runtime_and_relocation": {"status": "pending", "evidence": ""},
     "finder_input_accessibility": {"status": "pending", "evidence": ""},
     "install_upgrade_uninstall": {"status": "pending", "evidence": ""},
-    "supported_feature_acceptance": {"status": "pending", "evidence": ""}
+    "supported_feature_acceptance": {"status": "pending", "evidence": ""},
+    "dependency_vulnerability_audit": {"status": "pending", "evidence": ""},
+    "exploit_mitigations_verified": {"status": "pending", "evidence": ""}
   }
 }

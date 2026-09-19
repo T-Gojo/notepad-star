@@ -8,10 +8,16 @@ set(CMAKE_AUTOMOC ON)
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
   add_compile_options(/EHsc)
+  # Scintilla, Lexilla, Boost.Regex and pugixml all parse untrusted documents, so build
+  # every translation unit with Control Flow Guard. The final image is linked by Cargo,
+  # which passes the matching linker mitigations from .cargo/config.toml.
+  add_compile_options(/guard:cf)
   add_compile_options("$<$<CONFIG:Release>:/O2>")
 else()
   add_compile_options(-fexceptions)
+  add_compile_options(-fstack-protector-strong)
   add_compile_options("$<$<CONFIG:Release>:-O2>")
+  add_compile_definitions("$<$<CONFIG:Release>:_FORTIFY_SOURCE=2>")
 endif()
 add_compile_definitions("$<$<CONFIG:Release>:NDEBUG>")
 find_package(Qt6 6.8.3 EXACT REQUIRED COMPONENTS Core Gui Widgets Core5Compat Test PrintSupport Network)

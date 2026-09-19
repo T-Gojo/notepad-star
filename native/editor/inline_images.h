@@ -43,6 +43,15 @@ inline InlineImageFlavor inlineImageFlavorFor(const QString& documentPath) {
     return InlineImageFlavor::Token;
 }
 
+// Document text is untrusted. A UNC, device or scheme-like reference would make the
+// operating system dial out to an attacker-chosen host the moment a file is opened,
+// which on Windows hands the logged-on user's credentials to that host.
+inline bool inlineImageReferenceIsRemote(const QString& reference) {
+    QString value = reference;
+    value.replace('\\', '/');
+    return value.startsWith("//") || value.contains("://");
+}
+
 inline QString inlineImageUnescape(const QString& value) {
     QString result = value;
     result.replace("&lt;", "<");
@@ -302,10 +311,11 @@ public:
     }
 
     QString resolve(const QString& reference) const {
-        if (reference.isEmpty()) return {};
+        if (reference.isEmpty() || inlineImageReferenceIsRemote(reference)) return {};
         const QFileInfo info(reference);
         if (info.isAbsolute() || folder.isEmpty()) return QDir::cleanPath(reference);
-        return QDir::cleanPath(QDir(folder).absoluteFilePath(reference));
+        const auto joined = QDir::cleanPath(QDir(folder).absoluteFilePath(reference));
+        return inlineImageReferenceIsRemote(joined) ? QString() : joined;
     }
 
 private:

@@ -1,0 +1,21 @@
+# Exploit mitigations for the shipped image. The Scintilla, Lexilla, Boost.Regex and
+# pugixml static libraries are compiled with /guard:cf by native/CMakeLists.txt; Cargo
+# performs the final link, so the matching linker mitigations have to be asserted here
+# instead of relying on unpinned MSVC linker defaults.
+[target.x86_64-pc-windows-msvc]
+rustflags = [
+    "-Ccontrol-flow-guard",
+    "-Clink-arg=/guard:cf",
+    "-Clink-arg=/DYNAMICBASE",
+    "-Clink-arg=/NXCOMPAT",
+    "-Clink-arg=/HIGHENTROPYVA",
+]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = [
+    "-Ccontrol-flow-guard",
+    "-Clink-arg=/guard:cf",
+    "-Clink-arg=/DYNAMICBASE",
+    "-Clink-arg=/NXCOMPAT",
+    "-Clink-arg=/HIGHENTROPYVA",
+]
