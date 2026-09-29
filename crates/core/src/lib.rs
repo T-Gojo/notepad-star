@@ -70,6 +70,7 @@ pub enum CommandId {
     FoldAll,
     UnfoldAll,
     ShowWhitespace,
+    SmartHighlight,
     ReadOnly,
     ToggleBookmark,
     NextBookmark,

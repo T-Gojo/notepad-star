@@ -21,7 +21,7 @@
   {"menu":"View/Document Views","commands":["move_other_view","move_left_view","move_right_view","move_all_other_view"]},
   {"menu":"View/Zoom","commands":["zoom_in","zoom_out","zoom_reset","zoom_sync"]},
   {"menu":"View/Folding","commands":["fold_all","unfold_all"]},
-  {"menu":"View","commands":["show_whitespace","document_list","document_map","function_list","workspace","document_summary"]},
+  {"menu":"View","commands":["show_whitespace","smart_highlight","document_list","document_map","function_list","workspace","document_summary"]},
   {"menu":"View/Project Panels","commands":["project_panel1","project_panel2","project_panel3"]},
   {"menu":"View","commands":["sync_vertical","sync_horizontal","monitoring"]},
   {"menu":"Encoding","commands":["encoding"]},
