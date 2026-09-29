@@ -551,7 +551,10 @@ public:
             guarded([&] { closeTab(index); });
         });
         connect(tabs, &EditorTabs::currentChanged, this, [this](int) {
-            if (!tearingDown) guarded([&] { refresh(); });
+            if (!tearingDown) guarded([&] {
+                refreshActiveSmartHighlight();
+                refresh();
+            });
         });
         connect(documentList, &QListWidget::currentRowChanged, this, [this](int row) {
             if (row >= 0) tabs->setCurrentIndex(row);
@@ -788,6 +791,7 @@ public:
         const char* regex = "(?<=abc )\\d+";
         const auto match = editor->sends(SCI_SEARCHINTARGET, std::strlen(regex), regex);
         check(match == 4, "Boost lookbehind regex integration failed.");
+        smartHighlightChecks(editor);
         dispatch("word_wrap");
         check(editor->send(SCI_GETWRAPMODE) == SC_WRAP_WORD, "Wrap action failed.");
         dispatch("dark_theme");
@@ -1992,6 +1996,51 @@ public:
     }
 
 private:
+    void smartHighlightChecks(ScintillaEditBase* editor) {
+        check(activeEditor() == editor, "Occurrence highlighting checks need the focused editor.");
+        check(commands.at("smart_highlight")->isChecked(), "Occurrence highlighting was not enabled by default.");
+        const QByteArray sample("alpha beta alpha alphas alpha");
+        editor->send(SCI_CLEARALL);
+        editor->sends(SCI_ADDTEXT, sample.size(), sample.constData());
+        const auto marked = [editor](sptr_t position) {
+            return editor->send(SCI_INDICATORVALUEAT, smartHighlightIndicator, position) != 0;
+        };
+        editor->setFocus();
+        const QPoint inside(static_cast<int>(editor->send(SCI_POINTXFROMPOSITION, 0, 13)) + 1,
+            static_cast<int>(editor->send(SCI_POINTYFROMPOSITION, 0, 13)) + 1);
+        QTest::mouseClick(editor->viewport(), Qt::LeftButton, Qt::NoModifier, inside);
+        QTest::mouseClick(editor->viewport(), Qt::LeftButton, Qt::NoModifier, inside);
+        QTest::qWait(50);
+        check(editor->send(SCI_GETSELECTIONSTART) == 11 && editor->send(SCI_GETSELECTIONEND) == 16,
+            "Double-clicking a word did not select the whole word.");
+        check(smartHighlightMatches == 3 && marked(0) && marked(24) && !marked(11) && !marked(17),
+            "Double-clicking a word did not highlight its duplicates elsewhere in the document.");
+        editor->send(SCI_SETSEL, 0, 5);
+        refreshSmartHighlight(editor);
+        check(smartHighlightMatches == 3 && marked(11) && marked(24) && !marked(17) && !marked(0),
+            "A selected word did not mark its whole-word duplicates only.");
+        check(text(editor) == sample && editor->send(SCI_GETSELECTIONSTART) == 0 &&
+            editor->send(SCI_GETSELECTIONEND) == 5, "Occurrence highlighting changed the text or the selection.");
+        updateStatus();
+        check(statusBar()->currentMessage().endsWith("\"alpha\" x3"),
+            "The status bar did not report how many duplicates were highlighted.");
+        dispatch("smart_highlight");
+        check(!commands.at("smart_highlight")->isChecked() && smartHighlightMatches == 0 && !marked(11),
+            "Turning occurrence highlighting off did not clear the marks.");
+        dispatch("smart_highlight");
+        check(commands.at("smart_highlight")->isChecked() && marked(11) && marked(24),
+            "Turning occurrence highlighting back on did not restore the marks.");
+        editor->send(SCI_SETSEL, 6, 6);
+        refreshSmartHighlight(editor);
+        check(smartHighlightMatches == 0 && !marked(11) && !marked(24),
+            "An empty selection left stale occurrence highlights.");
+        editor->send(SCI_SETSEL, 6, 10);
+        refreshSmartHighlight(editor);
+        check(smartHighlightMatches == 0 && !marked(11), "A unique word was reported as duplicated.");
+        editor->send(SCI_CLEARALL);
+        editor->sends(SCI_ADDTEXT, 11, "abc 123 abc");
+        editor->send(SCI_SETSEL, 0, 3);
+    }
     void uiToolsChecks() {
         LaunchSettings launch{};
         launch.smoke_test = true;
@@ -2776,6 +2825,9 @@ private:
     std::uint64_t outlineRevision = 0;
     QString outlineParserKey;
     QString outlineError;
+    QString smartHighlightTerm;
+    sptr_t smartHighlightMatches = 0;
+    bool refreshingSmartHighlight = false;
 
     DocumentView& current() {
         auto* page = tabs->currentWidget();
@@ -3297,6 +3349,87 @@ private:
             to->send(SCI_SETFIRSTVISIBLELINE, to->send(SCI_VISIBLEFROMDOCLINE, mapped));
         }
     }
+    // Occurrence highlighting marks every duplicate of the selected (usually double-clicked)
+    // text with indicator 25, kept separate from the comparison indicator 24.
+    static constexpr int smartHighlightIndicator = 25;
+    static constexpr sptr_t smartHighlightDocumentLimit = 4 * 1024 * 1024;
+    static constexpr sptr_t smartHighlightTermLimit = 256;
+    static constexpr sptr_t smartHighlightMatchLimit = 10000;
+    bool smartHighlighting() const {
+        return options.value("view").toObject().value("smart_highlight").toBool(true);
+    }
+    static bool smartHighlightWord(const QByteArray& needle) {
+        for (const auto byte : needle) {
+            const auto value = static_cast<unsigned char>(byte);
+            if (value >= 0x80 || value == '_' || (value >= '0' && value <= '9') ||
+                (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z')) continue;
+            return false;
+        }
+        return true;
+    }
+    static void clearSmartHighlight(ScintillaEditBase* pane) {
+        const auto previous = pane->send(SCI_GETINDICATORCURRENT);
+        pane->send(SCI_SETINDICATORCURRENT, smartHighlightIndicator);
+        pane->send(SCI_INDICATORCLEARRANGE, 0, pane->send(SCI_GETLENGTH));
+        pane->send(SCI_SETINDICATORCURRENT, previous);
+    }
+    void clearSmartHighlights() {
+        smartHighlightTerm.clear();
+        smartHighlightMatches = 0;
+        for (const auto& view : views) clearSmartHighlight(view.primary);
+    }
+    void refreshSmartHighlight(ScintillaEditBase* pane) {
+        if (tearingDown || refreshingSmartHighlight || macroRecording || macroPlaybackActive) return;
+        // Split panes share one document, so only the focused pane of a view drives its highlights.
+        for (const auto& view : views) if (view.primary == pane || view.clone == pane) {
+            if (view.focused != pane) return;
+            break;
+        }
+        const QScopedValueRollback<bool> refreshing(refreshingSmartHighlight, true);
+        smartHighlightTerm.clear();
+        smartHighlightMatches = 0;
+        const auto document = pane->send(SCI_GETDOCPOINTER);
+        for (const auto& view : views)
+            if (view.primary != pane && view.primary->send(SCI_GETDOCPOINTER) != document) clearSmartHighlight(view.primary);
+        clearSmartHighlight(pane);
+        if (!smartHighlighting()) return;
+        const auto length = pane->send(SCI_GETLENGTH);
+        if (length > smartHighlightDocumentLimit) return;
+        if (pane->send(SCI_GETSELECTIONS) != 1 || pane->send(SCI_SELECTIONISRECTANGLE)) return;
+        const auto start = pane->send(SCI_GETSELECTIONSTART);
+        const auto end = pane->send(SCI_GETSELECTIONEND);
+        if (end <= start || end - start > smartHighlightTermLimit) return;
+        QByteArray needle(end - start + 1, '\0');
+        pane->send(SCI_SETTARGETRANGE, start, end);
+        pane->sends(SCI_GETTARGETTEXT, 0, needle.data());
+        needle.resize(end - start);
+        if (needle.contains('\n') || needle.contains('\r') || needle.contains('\0') || needle.trimmed().isEmpty()) return;
+        const auto previousFlags = pane->send(SCI_GETSEARCHFLAGS);
+        const auto previousIndicator = pane->send(SCI_GETINDICATORCURRENT);
+        pane->send(SCI_SETSEARCHFLAGS, SCFIND_MATCHCASE | (smartHighlightWord(needle) ? SCFIND_WHOLEWORD : 0));
+        pane->send(SCI_SETINDICATORCURRENT, smartHighlightIndicator);
+        for (sptr_t position = 0; position < length && smartHighlightMatches < smartHighlightMatchLimit;) {
+            pane->send(SCI_SETTARGETRANGE, position, length);
+            const auto found = pane->sends(SCI_SEARCHINTARGET, needle.size(), needle.constData());
+            if (found < 0) break;
+            const auto matchEnd = pane->send(SCI_GETTARGETEND);
+            if (matchEnd <= found) break;
+            ++smartHighlightMatches;
+            // The selection marks itself already, so only its duplicates take the indicator.
+            if (found != start) pane->send(SCI_INDICATORFILLRANGE, found, matchEnd - found);
+            position = matchEnd;
+        }
+        pane->send(SCI_SETINDICATORCURRENT, previousIndicator);
+        pane->send(SCI_SETSEARCHFLAGS, previousFlags);
+        pane->send(SCI_SETTARGETRANGE, start, end);
+        if (smartHighlightMatches > 1) smartHighlightTerm = QString::fromUtf8(needle);
+        else smartHighlightMatches = 0;
+    }
+    void refreshActiveSmartHighlight() {
+        if (tearingDown || !tabs || tabs->count() == 0) return;
+        auto* page = tabs->currentWidget();
+        for (const auto& view : views) if (view.page == page) { refreshSmartHighlight(view.focused); return; }
+    }
     void applyEditorPreferences(ScintillaEditBase* pane) {
         const auto display = options.value("view").toObject();
         pane->send(SCI_SETWRAPMODE, wrap ? SC_WRAP_WORD : SC_WRAP_NONE);
@@ -3312,6 +3445,12 @@ private:
         pane->send(SCI_SETMULTIPLESELECTION, display.value("multi_selection").toBool(true));
         pane->send(SCI_SETADDITIONALSELECTIONTYPING, display.value("additional_typing").toBool(true));
         pane->send(SCI_SETBACKSPACEUNINDENTS, display.value("backspace_unindent").toBool());
+        pane->send(SCI_INDICSETSTYLE, smartHighlightIndicator, INDIC_ROUNDBOX);
+        pane->send(SCI_INDICSETFORE, smartHighlightIndicator, dark ? 0x4fd0a0 : 0x2fb37a);
+        pane->send(SCI_INDICSETALPHA, smartHighlightIndicator, dark ? 90 : 70);
+        pane->send(SCI_INDICSETOUTLINEALPHA, smartHighlightIndicator, 180);
+        pane->send(SCI_INDICSETUNDER, smartHighlightIndicator, true);
+        if (!display.value("smart_highlight").toBool(true)) clearSmartHighlight(pane);
         const auto caret = display.value("caret_width").toInt(1);
         pane->send(SCI_SETCARETSTYLE, caret < 4 ? CARETSTYLE_LINE :
             CARETSTYLE_BLOCK | (caret == 5 ? CARETSTYLE_BLOCK_AFTER : 0));
@@ -3346,6 +3485,9 @@ private:
         commands.at("dark_theme")->setChecked(dark);
         const auto display = options.value("view").toObject();
         commands.at("show_whitespace")->setChecked(display.value("show_whitespace").toBool() || display.value("show_eol").toBool());
+        commands.at("smart_highlight")->setChecked(display.value("smart_highlight").toBool(true));
+        if (!display.value("smart_highlight").toBool(true)) clearSmartHighlights();
+        else refreshActiveSmartHighlight();
         comparisonCacheValid = false;
         jsonDocument = 0;
         if (jsonPanel) jsonPanel->applyTheme(dark);
@@ -3432,7 +3574,8 @@ private:
             {"indent_guides", "Indentation guides"}, {"show_whitespace", "Show spaces and tabs"},
             {"show_eol", "Show line endings"}, {"scroll_past_end", "Scroll beyond the last line"},
             {"virtual_space", "Virtual space in stream selections"}, {"multi_selection", "Multiple selections"},
-            {"additional_typing", "Type into additional selections"}, {"backspace_unindent", "Backspace unindents"}}) {
+            {"additional_typing", "Type into additional selections"}, {"backspace_unindent", "Backspace unindents"},
+            {"smart_highlight", "Highlight other occurrences of the selected text"}}) {
             auto* flag = new QCheckBox;
             flag->setChecked(displayOptions.value(definition.first).toBool());
             flags.insert(definition.first, flag);
@@ -5091,8 +5234,20 @@ private:
                 refresh();
             });
         });
-        connect(editor, &ScintillaEditBase::updateUi, this, [this](Scintilla::Update) {
-            if (!tearingDown && tabs->count() > 0) guarded([&] { updateStatus(); });
+        connect(editor, &ScintillaEditBase::updateUi, this, [this, editor](Scintilla::Update flags) {
+            if (tearingDown) return;
+            guarded([&] {
+                if ((static_cast<unsigned int>(flags) & (SC_UPDATE_SELECTION | SC_UPDATE_CONTENT)) != 0)
+                    refreshSmartHighlight(editor);
+                if (tabs->count() > 0) updateStatus();
+            });
+        });
+        connect(clone, &ScintillaEditBase::updateUi, this, [this, clone](Scintilla::Update flags) {
+            if (tearingDown || (static_cast<unsigned int>(flags) & (SC_UPDATE_SELECTION | SC_UPDATE_CONTENT)) == 0) return;
+            guarded([&] {
+                refreshSmartHighlight(clone);
+                if (tabs->count() > 0) updateStatus();
+            });
         });
         for (auto* pane : {editor, clone}) {
             pane->installEventFilter(this);
@@ -5235,11 +5390,17 @@ private:
         const auto column = editor->send(SCI_GETCOLUMN, position) + 1;
         const auto ending = editor->send(SCI_GETEOLMODE);
         const auto path = pathText(document_path(*controller, current().id));
+        auto occurrences = QString();
+        if (smartHighlightMatches > 1) {
+            auto term = smartHighlightTerm.simplified();
+            if (term.size() > 32) term = term.left(32) + QString::fromUtf8("\xe2\x80\xa6");
+            occurrences = QString("   \"%1\" x%2").arg(term).arg(smartHighlightMatches);
+        }
         statusBar()->showMessage(QString("%1 | %2 lines   Ln %3, Col %4   %5   %6   %7")
             .arg(QString::fromUtf8(current().lexer)).arg(editor->send(SCI_GETLINECOUNT)).arg(line).arg(column)
             .arg(qs(document_encoding(*controller, current().id)))
             .arg(ending == SC_EOL_CRLF ? "CRLF" : ending == SC_EOL_LF ? "LF" : "CR")
-            .arg(path.isEmpty() ? "Untitled" : path));
+            .arg(path.isEmpty() ? "Untitled" : path) + occurrences);
         commands.at("read_only")->setChecked(editor->send(SCI_GETREADONLY) != 0);
         commands.at("monitoring")->setChecked(current().monitoring);
     }
@@ -6941,6 +7102,15 @@ private:
             auto updated = options;
             auto display = updated.value("view").toObject();
             display["show_whitespace"] = show; display["show_eol"] = show;
+            updated["view"] = display;
+            const auto encoded = QJsonDocument(updated).toJson(QJsonDocument::Compact);
+            store_settings(*controller, rs(encoded));
+            options = updated; applyOptions();
+        }
+        else if (id == "smart_highlight") {
+            auto updated = options;
+            auto display = updated.value("view").toObject();
+            display["smart_highlight"] = !display.value("smart_highlight").toBool(true);
             updated["view"] = display;
             const auto encoded = QJsonDocument(updated).toJson(QJsonDocument::Compact);
             store_settings(*controller, rs(encoded));

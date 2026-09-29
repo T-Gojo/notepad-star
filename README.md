@@ -110,6 +110,10 @@ Implemented additions:
   duplicate removal, whitespace display, folding and EOL conversion.
 - Read-only folder browser, language selection, rectangular/multiple selections,
   shared split buffers and independent view focus.
+- Occurrence highlighting: double-click (or select) text and every other copy of
+  it in the document is boxed, with the total count shown in the status bar.
+  Toggle it from **View > Highlight Matching Occurrences** or
+  **Settings > Preferences > Display**.
 - A bounded recent-file menu, Open All Recent, Clear Recent File List and
   Restore Last Closed File. Successful explicit opens/saves retain saved encoding
   hints; reopening a closed file reads disk and never resurrects discarded text.

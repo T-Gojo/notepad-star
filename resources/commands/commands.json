@@ -155,6 +155,7 @@
   {"id":"fold_all","menu":"View","label":"Fold All","shortcut":"","upstream":"IDM_VIEW_FOLDALL","checkable":false},
   {"id":"unfold_all","menu":"View","label":"Unfold All","shortcut":"","upstream":"IDM_VIEW_UNFOLDALL","checkable":false},
   {"id":"show_whitespace","menu":"View","label":"Show Spaces and Endings","shortcut":"","upstream":"IDM_VIEW_ALL_CHARACTERS","checkable":true},
+  {"id":"smart_highlight","menu":"View","label":"Highlight Matching Occurrences","shortcut":"","upstream":null,"checkable":true},
   {"id":"read_only","menu":"Edit","label":"Read-only Document","shortcut":"","upstream":"IDM_EDIT_TOGGLEREADONLY","checkable":true},
   {"id":"toggle_bookmark","menu":"Search","label":"Toggle Bookmark","shortcut":"Ctrl+F2","upstream":"IDM_SEARCH_TOGGLE_BOOKMARK","checkable":false},
   {"id":"next_bookmark","menu":"Search","label":"Next Bookmark","shortcut":"F2","upstream":"IDM_SEARCH_NEXT_BOOKMARK","checkable":false},
