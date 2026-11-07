@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+          # The parity inventory reads the pinned upstream baseline commit from history.
+          fetch-depth: 0
       - name: Fail closed on missing acceptance evidence or publisher setup
         run: cargo run --locked -p xtask -- release-check
       - name: Build, sign and validate the exact package

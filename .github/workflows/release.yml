@@ -22,7 +22,7 @@ jobs:
             qt_folder: msvc2022_64
             target: x86_64-pc-windows-msvc
             artifact: windows-x64
-          - runner: macos-14
+          - runner: macos-15
             qt_host: mac
             qt_arch: clang_64
             qt_folder: macos
@@ -34,6 +34,9 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The parity inventory reads the pinned upstream baseline commit from history.
+          fetch-depth: 0
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
