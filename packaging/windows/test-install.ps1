@@ -27,7 +27,9 @@ function Invoke-Setup([string] $File, [string[]] $Arguments, [int] $Expected) {
         Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
         throw 'Installer process exceeded two minutes.'
     }
-    if ($process.ExitCode -ne $Expected) { throw "Unexpected installer exit: $($process.ExitCode), expected $Expected." }
+    if ($process.ExitCode -ne $Expected) {
+        throw "Unexpected exit from $([IO.Path]::GetFileName($File)) $($Arguments -join ' '): $($process.ExitCode), expected $Expected."
+    }
 }
 $editor = $null
 try {
@@ -48,12 +50,14 @@ try {
     } while (-not $editor.HasExited -and $editor.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
     if ($editor.HasExited -or $editor.MainWindowHandle -eq 0) { throw 'The installed app did not show a window.' }
     Invoke-Setup $installerPath @('/S', "/D=$install") 2
-    Invoke-Setup $uninstaller @('/S') 2
+    # Without _?= an NSIS uninstaller relaunches from a temporary copy and the original
+    # process exits 0 at once; running it in place reports its real result.
+    Invoke-Setup $uninstaller @('/S', "_?=$install") 2
     if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $hash) { throw 'A running installation was modified.' }
     if (-not $editor.CloseMainWindow() -or -not $editor.WaitForExit(15000)) { throw 'The installed test window did not close normally.' }
     Invoke-Setup $installerPath @('/S', "/D=$install") 0
     if ((Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash -ne $hash) { throw 'Reinstall/upgrade changed the payload unexpectedly.' }
-    Invoke-Setup $uninstaller @('/S') 0
+    Invoke-Setup $uninstaller @('/S', "_?=$install") 0
     if ((Test-Path -LiteralPath $exe) -or (Test-Path -LiteralPath $key) -or (Test-Path -LiteralPath $shortcut)) {
         throw 'Uninstall left application files or registration behind.'
     }
