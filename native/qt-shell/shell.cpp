@@ -2154,8 +2154,12 @@ public:
             check(writeFixture("settings.json", "{\"font_size\": 13}") && writeFixture("recovery/automatic-session-v1", "session") &&
                 writeFixture("pasted-images/image.png", "png"), "Could not write the profile-backup fixture.");
             const auto firstCopy = snapshotProfileForUpgrade(profileDir.path(), "0.1.0|1", 2);
-            QFile copiedSettings(QDir(firstCopy).filePath("settings.json"));
-            check(!firstCopy.isEmpty() && copiedSettings.open(QIODevice::ReadOnly) && copiedSettings.readAll() == "{\"font_size\": 13}" &&
+            // Read and close the copy: Windows cannot prune a backup while a file in it is open.
+            const auto copiedSettings = [&] {
+                QFile file(QDir(firstCopy).filePath("settings.json"));
+                return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+            }();
+            check(!firstCopy.isEmpty() && copiedSettings == "{\"font_size\": 13}" &&
                 QFileInfo::exists(QDir(firstCopy).filePath("recovery/automatic-session-v1")) &&
                 !QFileInfo::exists(QDir(firstCopy).filePath("pasted-images/image.png")),
                 "Upgrading did not back up settings and recovery before reading them.");
@@ -6441,7 +6445,8 @@ private:
         // Only folders this function made are ever pruned.
         static const QRegularExpression ours("^\\d{8}-\\d{6}-\\d{3}(-\\d+)?-from-");
         int kept = 0;
-        for (const auto& entry : QDir(backups).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time)) {
+        // Folder names start with their creation time, so name order is age order on every platform.
+        for (const auto& entry : QDir(backups).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::Reversed)) {
             if (!ours.match(entry.fileName()).hasMatch()) continue;
             if (++kept > keep) QDir(entry.absoluteFilePath()).removeRecursively();
         }
