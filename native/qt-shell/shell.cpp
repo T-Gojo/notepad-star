@@ -2130,10 +2130,10 @@ public:
             const auto imported = tableFromDelimited("name,note\n\"Smith, J\",\"say \"\"hi\"\"\"\n");
             check(imported && imported->rows.size() == 2 && imported->rows[1] == QStringList{"Smith, J", "say \"hi\""},
                 "Quoted comma-separated fields were not imported intact.");
-            auto numbers = *tableFromDelimited("n\tv\n10\tx\n9\ty\n\tz\n1,000\tw\n");
-            sortTableRows(numbers, 0, false);
-            check(numbers.rows[1][0] == "9" && numbers.rows[2][0] == "10" && numbers.rows[3][0] == "1,000" &&
-                numbers.rows[4][0].isEmpty(), "Numbers did not sort numerically with empty cells last.");
+            auto sortable = *tableFromDelimited("n\tv\n10\tx\n9\ty\n\tz\n1,000\tw\n");
+            sortTableRows(sortable, 0, false);
+            check(sortable.rows[1][0] == "9" && sortable.rows[2][0] == "10" && sortable.rows[3][0] == "1,000" &&
+                sortable.rows[4][0].isEmpty(), "Numbers did not sort numerically with empty cells last.");
             repeatPane->sends(SCI_SETTEXT, 0, "a\tb\n1\t2\n");
             repeatPane->send(SCI_SELECTALL);
             check(convertSelectionToTable() && tables.blockAt(0) && tables.blockAt(0)->table.rows ==
@@ -2145,26 +2145,26 @@ public:
             // Every new build backs up the profile it inherits before reading it.
             QTemporaryDir profileRoot;
             check(profileRoot.isValid(), "Could not create the profile-backup fixture.");
-            const QDir profile(profileRoot.path());
+            const QDir profileDir(profileRoot.path());
             const auto writeFixture = [&](const QString& relative, const QByteArray& bytes) {
-                QDir().mkpath(QFileInfo(profile.filePath(relative)).absolutePath());
-                QFile file(profile.filePath(relative));
+                QDir().mkpath(QFileInfo(profileDir.filePath(relative)).absolutePath());
+                QFile file(profileDir.filePath(relative));
                 return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
             };
             check(writeFixture("settings.json", "{\"font_size\": 13}") && writeFixture("recovery/automatic-session-v1", "session") &&
                 writeFixture("pasted-images/image.png", "png"), "Could not write the profile-backup fixture.");
-            const auto firstCopy = snapshotProfileForUpgrade(profile.path(), "0.1.0|1", 2);
+            const auto firstCopy = snapshotProfileForUpgrade(profileDir.path(), "0.1.0|1", 2);
             QFile copiedSettings(QDir(firstCopy).filePath("settings.json"));
             check(!firstCopy.isEmpty() && copiedSettings.open(QIODevice::ReadOnly) && copiedSettings.readAll() == "{\"font_size\": 13}" &&
                 QFileInfo::exists(QDir(firstCopy).filePath("recovery/automatic-session-v1")) &&
                 !QFileInfo::exists(QDir(firstCopy).filePath("pasted-images/image.png")),
                 "Upgrading did not back up settings and recovery before reading them.");
-            check(snapshotProfileForUpgrade(profile.path(), "0.1.0|1", 2).isEmpty(), "The same build backed up its profile twice.");
-            check(!snapshotProfileForUpgrade(profile.path(), "0.1.1|2", 2).isEmpty() &&
-                !snapshotProfileForUpgrade(profile.path(), "0.1.2|3", 2).isEmpty(), "A newer build did not back up the profile.");
-            QDir(profile.filePath("backups")).mkdir("keep-me");
-            check(QDir(profile.filePath("backups")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == 3 &&
-                QFileInfo::exists(profile.filePath("settings.json")),
+            check(snapshotProfileForUpgrade(profileDir.path(), "0.1.0|1", 2).isEmpty(), "The same build backed up its profile twice.");
+            check(!snapshotProfileForUpgrade(profileDir.path(), "0.1.1|2", 2).isEmpty() &&
+                !snapshotProfileForUpgrade(profileDir.path(), "0.1.2|3", 2).isEmpty(), "A newer build did not back up the profileDir.");
+            QDir(profileDir.filePath("backups")).mkdir("keep-me");
+            check(QDir(profileDir.filePath("backups")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == 3 &&
+                QFileInfo::exists(profileDir.filePath("settings.json")),
                 "Profile backups were not limited to the newest copies, or the live profile changed.");
         }
         const QByteArray summaryFixture("\xc3\xa9 \xf0\x9f\x9a\x80\r\na\rb\n");

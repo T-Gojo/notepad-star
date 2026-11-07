@@ -128,12 +128,12 @@ public:
     const char* SCI_METHOD BufferPointer() override { return text_.constData(); }
     int SCI_METHOD GetLineIndentation(Sci_Position line) override {
         int spaces = 0;
-        for (auto i = LineStart(line); i < Length() && text_[i] == ' '; ++i) ++spaces;
+        for (auto i = LineStart(line); i < Length() && text_[static_cast<qsizetype>(i)] == ' '; ++i) ++spaces;
         return spaces;
     }
     Sci_Position SCI_METHOD LineEnd(Sci_Position line) const override {
         auto end = LineStart(line + 1);
-        while (end > LineStart(line) && (text_[end - 1] == '\n' || text_[end - 1] == '\r')) --end;
+        while (end > LineStart(line) && (text_[static_cast<qsizetype>(end - 1)] == '\n' || text_[static_cast<qsizetype>(end - 1)] == '\r')) --end;
         return end;
     }
     Sci_Position SCI_METHOD GetRelativePosition(Sci_Position start, Sci_Position offset) const override {
@@ -141,7 +141,7 @@ public:
     }
     int SCI_METHOD GetCharacterAndWidth(Sci_Position position, Sci_Position* width) const override {
         if (width) *width = 1;
-        return position >= 0 && position < Length() ? static_cast<unsigned char>(text_[position]) : 0;
+        return position >= 0 && position < Length() ? static_cast<unsigned char>(text_[static_cast<qsizetype>(position)]) : 0;
     }
     void verify() const { CHECK(error_ == 0); }
 private:
