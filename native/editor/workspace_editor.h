@@ -81,16 +81,16 @@ protected:
         syncObjects();
     }
     void mouseMoveEvent(QMouseEvent* event) override {
-        if (images.mouseMove(event)) { event->accept(); return; }
+        if (tables.mouseMove(event) || images.mouseMove(event)) { event->accept(); return; }
         ScintillaEditBase::mouseMoveEvent(event);
     }
     void mouseReleaseEvent(QMouseEvent* event) override {
-        if (images.mouseRelease(event)) { event->accept(); return; }
+        if (tables.mouseRelease(event) || images.mouseRelease(event)) { event->accept(); return; }
         ScintillaEditBase::mouseReleaseEvent(event);
         syncObjects();
     }
     void mouseDoubleClickEvent(QMouseEvent* event) override {
-        if (tables.mousePress(event)) { event->accept(); return; }
+        if (tables.mouseDoubleClick(event)) { event->accept(); return; }
         ScintillaEditBase::mouseDoubleClickEvent(event);
     }
     void contextMenuEvent(QContextMenuEvent* event) override {

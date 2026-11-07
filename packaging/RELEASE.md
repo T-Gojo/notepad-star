@@ -157,6 +157,25 @@ built. The existing internal application-data/bundle identity is deliberately
 retained, even though the visible product name is now Notepad Star, so profiles,
 sessions and recovery are not stranded by a cosmetic rename.
 
+User data never lives inside the application, so replacing or reinstalling the app
+cannot delete it:
+
+| Data | macOS | Windows |
+|------|-------|---------|
+| Settings, sessions, recovery of unsaved documents | `~/Library/Application Support/NotepadStar/Notepad Star Rust Preview/` | `%LOCALAPPDATA%\NotepadStar\Notepad Star Rust Preview\` |
+| Images pasted into untitled documents | same folder, `pasted-images/` | `%APPDATA%\NotepadStar\Notepad Star Rust Preview\pasted-images\` |
+| Images of saved documents | `<name>.images/` beside the document | same |
+
+The first time a new build starts (a new version, or any reinstall), it copies the
+profile it inherits into `backups/<date>-from-<previous version>/` inside that
+folder **before** reading it, and keeps the newest five copies. If an update ever
+misbehaves, quit the app and copy `settings.json`, `last-session.json` or `recovery/`
+back from the newest backup. Pasted images are not copied: the editor only adds
+them, and unused ones go to the Trash/Recycle Bin when their tab closes.
+
+Never change the application name, organization name or macOS bundle identifier
+(`org.notepadstar.rustpreview`): they decide where existing profiles are found.
+
 The Windows installer is per-user and does not require elevation. It registers
 the application and Start Menu shortcut without taking over text-file defaults.
 Uninstall removes its named payload files, not profiles/documents or unknown files.

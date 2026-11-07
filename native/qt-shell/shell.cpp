@@ -90,6 +90,9 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QAbstractButton>
+#include <QPainter>
+#include <QPainterPath>
+#include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSignalBlocker>
@@ -533,6 +536,16 @@ public:
         jsonButton->bind(commands.at("json_inspector"), "JSON",
             "JSON Inspector (Ctrl+Alt+I) \xe2\x80\x94 hover for tree, graph and pretty views");
         toolbar->addWidget(jsonButton);
+        commands.at("insert_table")->setIcon(tableIcon(toolbar->palette().color(QPalette::ButtonText)));
+        auto* tableMenu = new QMenu("Table", this);
+        tableMenu->setObjectName("table-tool-menu");
+        populateTableMenu(tableMenu);
+        tableButton = new ToolGroupButton(toolbar);
+        tableButton->setObjectName("table-tool-button");
+        tableButton->setMenu(tableMenu);
+        tableButton->bind(commands.at("insert_table"), "Table",
+            "Insert Table (Ctrl+Alt+T) \xe2\x80\x94 hover for rows, columns, sorting and sizing");
+        toolbar->addWidget(tableButton);
         syncToolStates();
         recentMenu = new QMenu("Recent Files", this);
         commands.at("open_recent")->setMenu(recentMenu);
@@ -602,6 +615,12 @@ public:
             const auto profile = launch.profile.windows.empty() && launch.profile.unix.empty() ?
                 QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) : pathText(launch.profile);
             recoveryPath = QDir(profile).filePath("recovery");
+            // Before this build reads anything, keep a copy of what an earlier build left behind.
+            try {
+                snapshotProfileForUpgrade(profile, installedBuildIdentity(), 5);
+            } catch (const std::exception& error) {
+                qWarning("Could not back up the profile before upgrading: %s", error.what());
+            }
         }
         guarded([&] {
             settingsPath = QFileInfo(recoveryPath).dir().filePath("settings.json");
@@ -2076,7 +2095,77 @@ public:
                 "Row deletion removed the wrong row or allowed deleting the header.");
             check(tables.alignColumn(1, 0, TableAlign::Right) && tables.blockAt(1)->table.align[0] == TableAlign::Right,
                 "Column alignment was not stored in the table.");
+
+            // Column widths are kept in a comment above the table that Markdown viewers hide.
+            check(tables.setColumnWidth(1, 0, 20) && tableLine(1).startsWith("<!-- column-widths: 20 0 0") &&
+                tables.blockAt(2) && tables.blockAt(2)->first == 1 && tables.blockAt(1)->table.widths[0] == 20,
+                "A column width was not stored with the table.");
+            const auto beforeDrag = tables.placements();
+            check(beforeDrag.size() == 1 && beforeDrag.front().columnX.size() == 4, "The sized table was not drawn.");
+            const auto& sizedGrid = beforeDrag.front();
+            check(sizedGrid.columnX[1] - sizedGrid.columnX[0] > sizedGrid.columnX[3] - sizedGrid.columnX[2],
+                "A stored column width did not widen the drawn column.");
+            const QPointF borderPoint(sizedGrid.columnX[2], (sizedGrid.rowY[1] + sizedGrid.rowY[2]) / 2.0);
+            const auto dragTo = borderPoint + QPointF(64, 0);
+            QMouseEvent pressBorder(QEvent::MouseButtonPress, borderPoint, repeatPane->viewport()->mapToGlobal(borderPoint),
+                Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent dragBorder(QEvent::MouseMove, dragTo, repeatPane->viewport()->mapToGlobal(dragTo),
+                Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent releaseBorder(QEvent::MouseButtonRelease, dragTo, repeatPane->viewport()->mapToGlobal(dragTo),
+                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            check(tables.mousePress(&pressBorder) && tables.mouseMove(&dragBorder) && tables.mouseRelease(&releaseBorder) &&
+                tables.blockAt(1)->table.widths[1] > 0, "Dragging a column border did not resize the column.");
+            const auto draggedWidth = tables.blockAt(1)->table.widths[1];
+            check(tables.moveColumn(1, 0, 1) && tables.blockAt(1)->table.widths[0] == draggedWidth &&
+                tables.blockAt(1)->table.widths[1] == 20 && tables.blockAt(1)->table.rows[0][1] == "Name",
+                "Moving a column did not carry its cells and width.");
+            check(tables.duplicateRow(1, 1) && tables.blockAt(1)->table.rowCount() == 4 &&
+                tables.blockAt(1)->table.rows[1] == tables.blockAt(1)->table.rows[2], "Duplicating a row failed.");
+            check(tables.sortRows(1, 1, true) && tables.blockAt(1)->table.rows[1][1] == "c",
+                "Sorting by a column did not reorder the body rows.");
+            check(tables.setColumnWidth(1, -1, 0) && tableLine(1).startsWith("|") && !tableHasWidths(tables.blockAt(1)->table),
+                "Fitting every column did not remove the stored widths.");
+
+            // Delimited text: quoted fields, numeric sorting with empty cells last, and conversion.
+            const auto imported = tableFromDelimited("name,note\n\"Smith, J\",\"say \"\"hi\"\"\"\n");
+            check(imported && imported->rows.size() == 2 && imported->rows[1] == QStringList{"Smith, J", "say \"hi\""},
+                "Quoted comma-separated fields were not imported intact.");
+            auto numbers = *tableFromDelimited("n\tv\n10\tx\n9\ty\n\tz\n1,000\tw\n");
+            sortTableRows(numbers, 0, false);
+            check(numbers.rows[1][0] == "9" && numbers.rows[2][0] == "10" && numbers.rows[3][0] == "1,000" &&
+                numbers.rows[4][0].isEmpty(), "Numbers did not sort numerically with empty cells last.");
+            repeatPane->sends(SCI_SETTEXT, 0, "a\tb\n1\t2\n");
+            repeatPane->send(SCI_SELECTALL);
+            check(convertSelectionToTable() && tables.blockAt(0) && tables.blockAt(0)->table.rows ==
+                QList<QStringList>{{"a", "b"}, {"1", "2"}}, "Selected tab-separated text was not converted into a table.");
+            check(tableButton && !commands.at("insert_table")->icon().isNull(), "The toolbar has no Table button with an icon.");
             repeatPane->sends(SCI_SETTEXT, 0, "");
+        }
+        {
+            // Every new build backs up the profile it inherits before reading it.
+            QTemporaryDir profileRoot;
+            check(profileRoot.isValid(), "Could not create the profile-backup fixture.");
+            const QDir profile(profileRoot.path());
+            const auto writeFixture = [&](const QString& relative, const QByteArray& bytes) {
+                QDir().mkpath(QFileInfo(profile.filePath(relative)).absolutePath());
+                QFile file(profile.filePath(relative));
+                return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+            };
+            check(writeFixture("settings.json", "{\"font_size\": 13}") && writeFixture("recovery/automatic-session-v1", "session") &&
+                writeFixture("pasted-images/image.png", "png"), "Could not write the profile-backup fixture.");
+            const auto firstCopy = snapshotProfileForUpgrade(profile.path(), "0.1.0|1", 2);
+            QFile copiedSettings(QDir(firstCopy).filePath("settings.json"));
+            check(!firstCopy.isEmpty() && copiedSettings.open(QIODevice::ReadOnly) && copiedSettings.readAll() == "{\"font_size\": 13}" &&
+                QFileInfo::exists(QDir(firstCopy).filePath("recovery/automatic-session-v1")) &&
+                !QFileInfo::exists(QDir(firstCopy).filePath("pasted-images/image.png")),
+                "Upgrading did not back up settings and recovery before reading them.");
+            check(snapshotProfileForUpgrade(profile.path(), "0.1.0|1", 2).isEmpty(), "The same build backed up its profile twice.");
+            check(!snapshotProfileForUpgrade(profile.path(), "0.1.1|2", 2).isEmpty() &&
+                !snapshotProfileForUpgrade(profile.path(), "0.1.2|3", 2).isEmpty(), "A newer build did not back up the profile.");
+            QDir(profile.filePath("backups")).mkdir("keep-me");
+            check(QDir(profile.filePath("backups")).entryList(QDir::Dirs | QDir::NoDotAndDotDot).size() == 3 &&
+                QFileInfo::exists(profile.filePath("settings.json")),
+                "Profile backups were not limited to the newest copies, or the live profile changed.");
         }
         const QByteArray summaryFixture("\xc3\xa9 \xf0\x9f\x9a\x80\r\na\rb\n");
         repeatPane->sends(SCI_ADDTEXT, summaryFixture.size(), summaryFixture.constData());
@@ -2884,6 +2973,7 @@ private:
     QTimer* toolsTimer = nullptr;
     QTimer* inlineImageTimer = nullptr;
     QString imageFolderOverride;
+    ToolGroupButton* tableButton = nullptr;
     std::set<std::uint64_t> pendingInlineImages;
     QDockWidget* jsonDock = nullptr;
     JsonPanel* jsonPanel = nullptr;
@@ -6298,6 +6388,65 @@ private:
         return mime && mime->hasImage() && !mime->hasText() && !mime->hasUrls() && !clipboardImage().isNull();
     }
     // Pasted images become sibling files so the document stays plain text while the canvas shows the picture.
+    // Identifies the installed build: its version plus the executable's timestamp, so every
+    // install or update counts as a new build even when the version number is unchanged.
+    static QString installedBuildIdentity() {
+        const QFileInfo executable(QCoreApplication::applicationFilePath());
+        return QCoreApplication::applicationVersion() + "|" + QString::number(executable.lastModified().toMSecsSinceEpoch());
+    }
+    // The first start of a new build copies the profile a different build left behind (settings,
+    // sessions, recovery of unsaved documents) into backups/ before reading it, so a faulty update
+    // can never cost user data. The newest `keep` copies are kept. Pasted images are not copied:
+    // the editor only ever adds them and releases unused ones to the Trash.
+    static QString snapshotProfileForUpgrade(const QString& profile, const QString& build, int keep) {
+        const QDir root(profile);
+        if (profile.isEmpty() || !root.exists()) return {};
+        const QString backups = root.filePath("backups");
+        const QString marker = QDir(backups).filePath("installed-build.txt");
+        QString previous;
+        if (QFile file(marker); file.open(QIODevice::ReadOnly)) previous = QString::fromUtf8(file.read(4096)).trimmed();
+        if (previous == build) return {};
+        QStringList sources;
+        qint64 total = 0;
+        QDirIterator walk(profile, QDir::Files | QDir::Hidden | QDir::NoSymLinks, QDirIterator::Subdirectories);
+        while (walk.hasNext()) {
+            const auto path = walk.next();
+            const auto relative = root.relativeFilePath(path);
+            if (relative.startsWith("backups/") || relative.startsWith("pasted-images/")) continue;
+            total += walk.fileInfo().size();
+            sources.append(relative);
+        }
+        check(total <= 1024LL * 1024 * 1024, "The profile is larger than 1 GiB; it was not backed up automatically.");
+        QString created;
+        if (!sources.isEmpty()) {
+            auto label = previous.isEmpty() ? QString("earlier") : previous.section('|', 0, 0);
+            label.replace(QRegularExpression("[^A-Za-z0-9._-]"), "_");
+            const auto stamp = QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss-zzz");
+            created = QDir(backups).filePath(stamp + "-from-" + label);
+            for (int attempt = 2; QFileInfo::exists(created); ++attempt)
+                created = QDir(backups).filePath(stamp + "-" + QString::number(attempt) + "-from-" + label);
+            check(QDir().mkpath(created), "Could not create the profile backup folder.");
+            for (const auto& relative : sources) {
+                const auto target = QDir(created).filePath(relative);
+                if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !QFile::copy(root.filePath(relative), target)) {
+                    QDir(created).removeRecursively();
+                    throw std::runtime_error("Could not copy " + relative.toStdString() + " into the profile backup.");
+                }
+            }
+        }
+        check(QDir().mkpath(backups), "Could not create the profile backup folder.");
+        QSaveFile record(marker);
+        check(record.open(QIODevice::WriteOnly) && record.write(build.toUtf8()) == build.toUtf8().size() && record.commit(),
+            "Could not record the installed build.");
+        // Only folders this function made are ever pruned.
+        static const QRegularExpression ours("^\\d{8}-\\d{6}-\\d{3}(-\\d+)?-from-");
+        int kept = 0;
+        for (const auto& entry : QDir(backups).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time)) {
+            if (!ours.match(entry.fileName()).hasMatch()) continue;
+            if (++kept > keep) QDir(entry.absoluteFilePath()).removeRecursively();
+        }
+        return created;
+    }
     // Untitled documents keep pasted images in the profile until they are first saved.
     static QString untitledImageFolder() {
         const auto base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
@@ -6494,8 +6643,8 @@ private:
                 if (updated.alt.isEmpty()) updated.alt = "pasted image";
             }
             if (!inlineImageLineRoundTrips(updated)) continue;
-            const auto replacement = formatInlineImageLine(updated);
-            if (replacement != original) rewrites.push_back({line, replacement.toUtf8()});
+            const auto formatted = formatInlineImageLine(updated);
+            if (formatted != original) rewrites.push_back({line, formatted.toUtf8()});
         }
         return rewrites;
     }
@@ -6543,7 +6692,120 @@ private:
         static_cast<WorkspaceEditor*>(pane)->tables.beginEdit(line, 0, 0);
         statusBar()->showMessage("Type into the cell. Tab or Enter moves on, Esc leaves the table; right-click for rows and columns.");
     }
+    // Turns the selected lines of tab-, comma- or semicolon-separated text into a table.
+    bool convertSelectionToTable() {
+        auto* pane = activeEditor();
+        if (pane->send(SCI_GETSELECTIONS) != 1 || pane->send(SCI_SELECTIONISRECTANGLE) || pane->send(SCI_GETSELECTIONEMPTY))
+            return false;
+        check(!macroPlaybackActive && !macroRecording, "Finish the macro before converting text to a table.");
+        check(!pane->send(SCI_GETREADONLY), "Document is read-only.");
+        const auto firstLine = pane->send(SCI_LINEFROMPOSITION, pane->send(SCI_GETSELECTIONSTART));
+        auto lastLine = pane->send(SCI_LINEFROMPOSITION, pane->send(SCI_GETSELECTIONEND));
+        if (lastLine > firstLine && pane->send(SCI_GETSELECTIONEND) == pane->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(lastLine)))
+            --lastLine;
+        const auto start = pane->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(firstLine));
+        const auto end = pane->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(lastLine));
+        check(end - start <= 4 * 1024 * 1024, "The selection is too large to convert into a table.");
+        QByteArray selected(static_cast<qsizetype>(end - start) + 1, '\0');
+        Sci_TextRangeFull range{{start, end}, selected.data()};
+        pane->send(SCI_GETTEXTRANGEFULL, 0, reinterpret_cast<sptr_t>(&range));
+        selected.resize(static_cast<qsizetype>(end - start));
+        const auto table = tableFromDelimited(QString::fromUtf8(selected));
+        if (!table) return false;
+        const auto mode = pane->send(SCI_GETEOLMODE);
+        const auto formatted = formatTable(*table,
+            mode == SC_EOL_CR ? QStringLiteral("\r") : mode == SC_EOL_CRLF ? QStringLiteral("\r\n") : QStringLiteral("\n")).toUtf8();
+        const auto targetStart = pane->send(SCI_GETTARGETSTART);
+        const auto targetEnd = pane->send(SCI_GETTARGETEND);
+        pane->send(SCI_BEGINUNDOACTION);
+        pane->send(SCI_SETTARGETRANGE, static_cast<uptr_t>(start), end);
+        pane->sends(SCI_REPLACETARGET, static_cast<uptr_t>(formatted.size()), formatted.constData());
+        pane->send(SCI_ENDUNDOACTION);
+        pane->send(SCI_SETTARGETRANGE, static_cast<uptr_t>(targetStart), targetEnd);
+        pane->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(start));
+        static_cast<WorkspaceEditor*>(pane)->syncObjects();
+        statusBar()->showMessage(QString("Converted the selection into a table with %1 columns.").arg(table->columns()));
+        return true;
+    }
+    // Table commands from the toolbar act on the table at the caret, at the cell last edited.
+    void runTableCommand(const std::function<bool(InlineTableView&, sptr_t, int, int)>& command) {
+        auto& tables = static_cast<WorkspaceEditor*>(activeEditor())->tables;
+        const auto cell = tables.currentCell();
+        check(cell.has_value(), "Click a table first, then choose a table command.");
+        const auto [first, row, column] = *cell;
+        tables.finishEdit(true);
+        if (!command(tables, first, row, column)) statusBar()->showMessage("That table command does not apply here.");
+    }
+    void populateTableMenu(QMenu* menu) {
+        const auto add = [this, menu](const QString& label, std::function<void()> action, bool needsTable) {
+            auto* item = menu->addAction(label);
+            item->setProperty("needsTable", needsTable);
+            connect(item, &QAction::triggered, this, [this, action] { guarded([&] { action(); }); });
+        };
+        add("Insert Table\xe2\x80\xa6", [this] { insertTableDialog(); }, false);
+        add("Convert Selection to Table", [this] {
+            check(convertSelectionToTable(), "Select lines of tab-, comma- or semicolon-separated text first.");
+        }, false);
+        menu->addSeparator();
+        using Op = std::function<bool(InlineTableView&, sptr_t, int, int)>;
+        const std::vector<std::pair<QString, Op>> operations{
+            {"Insert Row Below", [](InlineTableView& t, sptr_t f, int r, int) { return t.insertRow(f, r + 1); }},
+            {"Insert Column Right", [](InlineTableView& t, sptr_t f, int, int c) { return t.insertColumn(f, c + 1); }},
+            {"Duplicate Row", [](InlineTableView& t, sptr_t f, int r, int) { return t.duplicateRow(f, r); }},
+            {"Delete Row", [](InlineTableView& t, sptr_t f, int r, int) { return t.deleteRow(f, r); }},
+            {"Delete Column", [](InlineTableView& t, sptr_t f, int, int c) { return t.deleteColumn(f, c); }},
+            {"", {}},
+            {"Sort Ascending by Column", [](InlineTableView& t, sptr_t f, int, int c) { return t.sortRows(f, c, false); }},
+            {"Sort Descending by Column", [](InlineTableView& t, sptr_t f, int, int c) { return t.sortRows(f, c, true); }},
+            {"Fit All Columns to Contents", [](InlineTableView& t, sptr_t f, int, int) { return t.setColumnWidth(f, -1, 0); }},
+            {"", {}},
+            {"Delete Table", [](InlineTableView& t, sptr_t f, int, int) {
+                const auto block = t.blockAt(f);
+                return block && t.removeTable(*block);
+            }}};
+        for (const auto& [label, operation] : operations) {
+            if (label.isEmpty()) { menu->addSeparator(); continue; }
+            const auto op = operation;
+            add(label, [this, op] { runTableCommand(op); }, true);
+        }
+        connect(menu, &QMenu::aboutToShow, this, [this, menu] {
+            const bool table = tabs->count() > 0 &&
+                static_cast<WorkspaceEditor*>(activeEditor())->tables.currentCell().has_value();
+            for (auto* item : menu->actions())
+                if (item->property("needsTable").toBool()) item->setEnabled(table);
+        });
+    }
+    // A small grid with a highlighted header row, drawn in the toolbar's text colour.
+    static QIcon tableIcon(const QColor& ink) {
+        QIcon icon;
+        for (const int scale : {1, 2, 3}) {
+            QPixmap pixmap(16 * scale, 16 * scale);
+            pixmap.setDevicePixelRatio(scale);
+            pixmap.fill(Qt::transparent);
+            QPainter painter(&pixmap);
+            painter.setRenderHint(QPainter::Antialiasing, true);
+            const QRectF frame(1.5, 2.5, 13, 11);
+            QPainterPath clip;
+            clip.addRoundedRect(frame, 2, 2);
+            painter.fillPath(clip, QColor(0, 122, 204, 70));
+            painter.save();
+            painter.setClipPath(clip);
+            painter.fillRect(QRectF(1.5, 2.5, 13, 3.4), QColor(0, 122, 204));
+            painter.restore();
+            painter.setPen(QPen(ink, 1.1));
+            painter.setBrush(Qt::NoBrush);
+            painter.drawRoundedRect(frame, 2, 2);
+            painter.drawLine(QPointF(1.5, 5.9), QPointF(14.5, 5.9));
+            painter.drawLine(QPointF(1.5, 9.7), QPointF(14.5, 9.7));
+            painter.drawLine(QPointF(6.0, 5.9), QPointF(6.0, 13.5));
+            painter.drawLine(QPointF(10.3, 5.9), QPointF(10.3, 13.5));
+            painter.end();
+            icon.addPixmap(pixmap);
+        }
+        return icon;
+    }
     void insertTableDialog() {
+        if (convertSelectionToTable()) return;
         QDialog dialog(this);
         dialog.setWindowTitle("Insert Table");
         dialog.setObjectName("Insert Table");

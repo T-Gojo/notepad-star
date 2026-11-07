@@ -12,6 +12,7 @@
 #include <QGuiApplication>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QLocale>
 #include <QLineEdit>
 #include <QMenu>
 #include <QMimeData>
@@ -26,8 +27,10 @@
 #include <QTimer>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <functional>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 namespace star {
@@ -39,6 +42,7 @@ enum class TableAlign { None, Left, Center, Right };
 struct TextTable {
     QList<QStringList> rows;  // rows[0] is the header row
     QList<TableAlign> align;  // one entry per column
+    QList<int> widths;        // per column, in character widths; 0 sizes the column to its contents
     int columns() const { return static_cast<int>(align.size()); }
     int rowCount() const { return static_cast<int>(rows.size()); }
 };
@@ -93,6 +97,7 @@ inline std::optional<TextTable> parseTable(const QStringList& lines) {
         table.align.append(left && right ? TableAlign::Center : right ? TableAlign::Right
                                                            : left ? TableAlign::Left : TableAlign::None);
     }
+    table.widths = QList<int>(table.columns(), 0);
     table.rows.append(*header);
     for (qsizetype index = 2; index < lines.size(); ++index) {
         auto cells = splitTableRow(lines.at(index));
@@ -157,6 +162,122 @@ inline QString formatTable(const TextTable& table, const QString& eol = QStringL
     return lines.join(eol);
 }
 
+// Column widths chosen by dragging are kept in an HTML comment directly above the table:
+// Markdown viewers hide it, and the table itself stays standard.
+inline std::optional<QList<int>> parseTableWidths(const QString& raw) {
+    static const QRegularExpression pattern(QStringLiteral(R"(^<!--\s*column-widths:((?:\s+\d{1,3}){1,64})\s*-->$)"));
+    const auto match = pattern.match(raw.trimmed());
+    if (!match.hasMatch()) return std::nullopt;
+    QList<int> widths;
+    for (const auto& part : match.captured(1).split(' ', Qt::SkipEmptyParts)) widths.append(part.toInt());
+    return widths;
+}
+
+inline bool tableHasWidths(const TextTable& table) {
+    return std::any_of(table.widths.begin(), table.widths.end(), [](int width) { return width > 0; });
+}
+
+// The full text of a table block: the widths comment (when any width is set) and the table.
+inline QString formatTableBlock(const TextTable& table, const QString& eol = QStringLiteral("\n")) {
+    if (!tableHasWidths(table)) return formatTable(table, eol);
+    QStringList widths;
+    for (const int width : table.widths) widths.append(QString::number(std::clamp(width, 0, 999)));
+    return "<!-- column-widths: " + widths.join(' ') + " -->" + eol + formatTable(table, eol);
+}
+
+// Splits one line of delimited text; double quotes may wrap fields that hold the delimiter.
+inline QStringList splitDelimited(const QString& line, QChar delimiter) {
+    QStringList fields;
+    QString field;
+    bool quoted = false;
+    for (qsizetype i = 0; i < line.size(); ++i) {
+        const QChar c = line.at(i);
+        if (quoted) {
+            if (c == '"' && i + 1 < line.size() && line.at(i + 1) == '"') { field += '"'; ++i; }
+            else if (c == '"') quoted = false;
+            else field += c;
+        } else if (c == '"' && field.trimmed().isEmpty()) {
+            field.clear();
+            quoted = true;
+        } else if (c == delimiter) {
+            fields.append(field.trimmed());
+            field.clear();
+        } else {
+            field += c;
+        }
+    }
+    fields.append(field.trimmed());
+    return fields;
+}
+
+// Builds a table from tab-, comma- or semicolon-separated text; the first line is the header.
+inline std::optional<TextTable> tableFromDelimited(const QString& text) {
+    QStringList lines = QString(text).replace("\r\n", "\n").replace('\r', '\n').split('\n');
+    while (!lines.isEmpty() && lines.last().trimmed().isEmpty()) lines.removeLast();
+    while (!lines.isEmpty() && lines.first().trimmed().isEmpty()) lines.removeFirst();
+    if (lines.isEmpty() || lines.size() > kTableMaxRows) return std::nullopt;
+    QChar delimiter;
+    for (const QChar candidate : {QChar('\t'), QChar(','), QChar(';')})
+        if (lines.first().contains(candidate)) { delimiter = candidate; break; }
+    if (delimiter.isNull()) return std::nullopt;
+    QList<QStringList> rows;
+    int columns = 0;
+    for (const auto& line : lines) {
+        auto fields = splitDelimited(line, delimiter);
+        for (auto& field : fields) field = tableCellText(field).left(kTableMaxCell);
+        columns = std::max(columns, static_cast<int>(fields.size()));
+        rows.append(fields);
+    }
+    if (columns < 1 || columns > kTableMaxColumns) return std::nullopt;
+    TextTable table;
+    for (int column = 0; column < columns; ++column) {
+        table.align.append(TableAlign::None);
+        table.widths.append(0);
+    }
+    for (int row = 0; row < rows.size(); ++row) {
+        auto cells = rows[row];
+        while (cells.size() < columns) cells.append(row == 0 ? "Column " + QString::number(cells.size() + 1) : QString());
+        table.rows.append(cells);
+    }
+    return table;
+}
+
+// Numbers sort as numbers, ignoring thousands separators, currency signs and percent.
+inline std::optional<double> tableNumber(QString cell) {
+    cell = cell.trimmed();
+    cell.remove(',').remove(' ');
+    while (!cell.isEmpty() && QStringLiteral("$\u20ac\u00a3\u00a5\u20b9").contains(cell.front())) cell.remove(0, 1);
+    if (cell.endsWith('%')) cell.chop(1);
+    bool ok = false;
+    const double value = QLocale::c().toDouble(cell, &ok);
+    return ok ? std::optional<double>(value) : std::nullopt;
+}
+
+// Sorts the body rows by one column; empty cells always go last, the header never moves.
+inline void sortTableRows(TextTable& table, int column, bool descending) {
+    if (table.rowCount() < 3 || column < 0 || column >= table.columns()) return;
+    std::stable_sort(table.rows.begin() + 1, table.rows.end(), [&](const QStringList& a, const QStringList& b) {
+        const auto& left = a[column];
+        const auto& right = b[column];
+        if (left.isEmpty() != right.isEmpty()) return right.isEmpty();
+        if (left.isEmpty()) return false;
+        const auto x = tableNumber(left);
+        const auto y = tableNumber(right);
+        bool less;
+        if (x && y) {
+            if (*x == *y) return false;
+            less = *x < *y;
+        } else if (x.has_value() != y.has_value()) {
+            less = x.has_value();
+        } else {
+            const int order = left.compare(right, Qt::CaseInsensitive);
+            if (order == 0) return false;
+            less = order < 0;
+        }
+        return descending ? !less : less;
+    });
+}
+
 inline TextTable blankTable(int columns, int bodyRows) {
     TextTable table;
     columns = std::clamp(columns, 1, kTableMaxColumns);
@@ -165,6 +286,7 @@ inline TextTable blankTable(int columns, int bodyRows) {
     for (int column = 0; column < columns; ++column) {
         header.append("Column " + QString::number(column + 1));
         table.align.append(TableAlign::None);
+        table.widths.append(0);
     }
     table.rows.append(header);
     for (int row = 0; row < bodyRows; ++row) table.rows.append(QStringList(columns, QString()));
@@ -227,7 +349,7 @@ protected:
 class InlineTableView {
 public:
     struct Block {
-        sptr_t first = 0;
+        sptr_t first = 0;  // first line of the block (the widths comment, when present)
         sptr_t last = 0;
         TextTable table;
     };
@@ -260,8 +382,14 @@ public:
     }
     bool isRow(sptr_t line) const { return isTableRowText(lineText(line)); }
 
+    bool isWidths(sptr_t line) const { return parseTableWidths(lineText(line)).has_value(); }
+
     std::optional<Block> blockAt(sptr_t line) const {
-        if (!enabled || !isRow(line)) return std::nullopt;
+        if (!enabled) return std::nullopt;
+        if (!isRow(line)) {
+            if (!isWidths(line) || !isRow(line + 1)) return std::nullopt;
+            ++line;
+        }
         sptr_t first = line;
         while (first > 0 && line - first < kTableMaxRows && isRow(first - 1)) --first;
         const sptr_t count = editor->send(SCI_GETLINECOUNT);
@@ -271,6 +399,11 @@ public:
         for (sptr_t index = first; index <= last; ++index) lines.append(lineText(index));
         auto table = parseTable(lines);
         if (!table) return std::nullopt;
+        if (first > 0)
+            if (const auto widths = parseTableWidths(lineText(first - 1)); widths && widths->size() == table->columns()) {
+                table->widths = *widths;
+                --first;
+            }
         return Block{first, last, *table};
     }
 
@@ -396,12 +529,70 @@ public:
         const auto point = event->position().toPoint();
         for (const auto& placement : placements()) {
             if (!placement.cover.contains(point)) continue;
+            if (const int border = borderAt(placement, point); border >= 0 && canEdit()) {
+                finishEdit(true);
+                resizing = true;
+                resizeFirst = placement.block.first;
+                resizeColumn = border;
+                resizeOrigin = point.x();
+                resizeStart = placement.columnX[border + 1] - placement.columnX[border];
+                resizeWidth = resizeStart;
+                return true;
+            }
             const auto [row, column] = cellAt(placement, point);
             select(placement.block);
             if (row >= 0 && canEdit()) beginEdit(placement.block.first, row, column);
             return true;
         }
         return false;
+    }
+
+    // Dragging a column's right border resizes it; hovering a border shows the resize cursor.
+    bool mouseMove(QMouseEvent* event) {
+        if (!enabled) return false;
+        const auto point = event->position().toPoint();
+        if (resizing) {
+            resizeWidth = std::clamp(resizeStart + point.x() - resizeOrigin, 2 * kPadding + characterWidth() * 2, 1600);
+            editor->viewport()->update();
+            return true;
+        }
+        bool overBorder = false;
+        for (const auto& placement : placements())
+            if (borderAt(placement, point) >= 0) overBorder = true;
+        if (overBorder && canEdit()) {
+            editor->viewport()->setCursor(Qt::SplitHCursor);
+            hovering = true;
+            return true;
+        }
+        if (hovering) {
+            editor->viewport()->unsetCursor();
+            hovering = false;
+        }
+        return false;
+    }
+
+    bool mouseRelease(QMouseEvent* event) {
+        if (!resizing || event->button() != Qt::LeftButton) return false;
+        resizing = false;
+        const int characters = std::max(2, static_cast<int>(std::lround(
+            static_cast<double>(resizeWidth - 2 * kPadding - 2) / characterWidth())));
+        if (resizeWidth != resizeStart) setColumnWidth(resizeFirst, resizeColumn, characters);
+        editor->viewport()->update();
+        return true;
+    }
+
+    // Double-clicking a column border fits that column to its contents again.
+    bool mouseDoubleClick(QMouseEvent* event) {
+        if (!enabled || event->button() != Qt::LeftButton) return false;
+        const auto point = event->position().toPoint();
+        for (const auto& placement : placements()) {
+            const int border = borderAt(placement, point);
+            if (border < 0) continue;
+            resizing = false;
+            if (canEdit()) setColumnWidth(placement.block.first, border, 0);
+            return true;
+        }
+        return mousePress(event);
     }
 
     bool contextMenu(QContextMenuEvent* event) {
@@ -452,8 +643,8 @@ public:
                 const QFontMetrics metrics(row == 0 ? bold : plain);
                 for (int column = 0; column < table.columns(); ++column) {
                     const auto box = placement.cell(row, column).adjusted(kPadding, 0, -kPadding, 0);
-                    const auto shown = metrics.elidedText(table.rows[row][column], Qt::ElideRight, box.width());
-                    painter.drawText(box, alignmentOf(table.align[column]) | Qt::AlignVCenter, shown);
+                    const auto label = metrics.elidedText(table.rows[row][column], Qt::ElideRight, box.width());
+                    painter.drawText(box, alignmentOf(table.align[column]) | Qt::AlignVCenter, label);
                 }
             }
             if (selected && selected->first == placement.block.first && !editingBlock(placement.block)) {
@@ -563,6 +754,7 @@ public:
             for (int row = 0; row < table.rowCount(); ++row)
                 table.rows[row].insert(column, row == 0 ? "Column " + QString::number(table.columns() + 1) : QString());
             table.align.insert(column, TableAlign::None);
+            table.widths.insert(column, 0);
             return true;
         });
     }
@@ -574,6 +766,7 @@ public:
             if (column < 0 || column >= table.columns()) return false;
             for (auto& row : table.rows) row.removeAt(column);
             table.align.removeAt(column);
+            table.widths.removeAt(column);
             return true;
         });
     }
@@ -602,12 +795,66 @@ public:
                         for (int r = 0; r < table.rowCount(); ++r)
                             table.rows[r].append(r == 0 ? "Column " + QString::number(table.columns() + 1) : QString());
                         table.align.append(TableAlign::None);
+                        table.widths.append(0);
                     }
                     table.rows[target][cell] = tableCellText(values[index]).left(kTableMaxCell);
                 }
             }
             return true;
         });
+    }
+    bool sortRows(sptr_t firstLine, int column, bool descending) {
+        return mutate(firstLine, [&](TextTable& table) {
+            if (table.rowCount() < 3 || column < 0 || column >= table.columns()) return false;
+            sortTableRows(table, column, descending);
+            return true;
+        });
+    }
+    bool moveRow(sptr_t firstLine, int row, int delta) {
+        return mutate(firstLine, [&](TextTable& table) {
+            const int target = row + delta;
+            if (row < 1 || target < 1 || row >= table.rowCount() || target >= table.rowCount()) return false;
+            table.rows.swapItemsAt(row, target);
+            return true;
+        });
+    }
+    bool moveColumn(sptr_t firstLine, int column, int delta) {
+        return mutate(firstLine, [&](TextTable& table) {
+            const int target = column + delta;
+            if (column < 0 || target < 0 || column >= table.columns() || target >= table.columns()) return false;
+            for (auto& row : table.rows) row.swapItemsAt(column, target);
+            table.align.swapItemsAt(column, target);
+            table.widths.swapItemsAt(column, target);
+            return true;
+        });
+    }
+    bool duplicateRow(sptr_t firstLine, int row) {
+        return mutate(firstLine, [&](TextTable& table) {
+            if (row < 1 || row >= table.rowCount() || table.rowCount() >= kTableMaxRows) return false;
+            table.rows.insert(row + 1, table.rows[row]);
+            return true;
+        });
+    }
+    // Sets a column width in character widths; 0 (or column -1 for every column) fits contents.
+    bool setColumnWidth(sptr_t firstLine, int column, int characters) {
+        return mutate(firstLine, [&](TextTable& table) {
+            if (column < -1 || column >= table.columns()) return false;
+            const auto before = table.widths;
+            for (int index = 0; index < table.columns(); ++index)
+                if (column == -1 || index == column) table.widths[index] = std::clamp(characters, 0, 999);
+            return table.widths != before;
+        });
+    }
+    // The cell table commands act on: the one being edited, else the last edited cell of the
+    // selected table, else its first cell.
+    std::optional<std::tuple<sptr_t, int, int>> currentCell() const {
+        if (editing()) return std::tuple<sptr_t, int, int>{editFirst, editRow, editColumn};
+        const auto block = caretBlock();
+        if (!block) return std::nullopt;
+        if (block->first == editFirst)
+            return std::tuple<sptr_t, int, int>{editFirst, std::min(editRow, block->table.rowCount() - 1),
+                std::min(editColumn, block->table.columns() - 1)};
+        return std::tuple<sptr_t, int, int>{block->first, block->table.rowCount() > 1 ? 1 : 0, 0};
     }
     bool writeCell(int row, int column, const QString& value) {
         return mutate(editFirst, [&](TextTable& table) {
@@ -655,7 +902,7 @@ private:
         if (!block || block->first != firstLine) return false;
         auto table = block->table;
         if (!change(table)) return false;
-        const auto text = formatTable(table, QString::fromLatin1(eol())).toUtf8();
+        const auto text = formatTableBlock(table, QString::fromLatin1(eol())).toUtf8();
         const auto start = lineStart(block->first);
         const auto end = editor->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(block->last));
         const auto targetStart = editor->send(SCI_GETTARGETSTART);
@@ -707,6 +954,18 @@ private:
             row = std::max(0, row - 1);
         } else if (key == Qt::Key_Down) {
             row = std::min(rows - 1, row + 1);
+        } else if ((key == Qt::Key_Left || key == Qt::Key_Right) && !shift && !cellEditor->hasSelectedText() &&
+            cellEditor->cursorPosition() == (key == Qt::Key_Left ? 0 : static_cast<int>(cellEditor->text().size()))) {
+            // At the edge of a cell's text the arrow keys continue into the neighbouring cell.
+            if (key == Qt::Key_Left) {
+                if (column > 0) --column;
+                else if (row > 0) { --row; column = columns - 1; }
+                else return true;
+            } else {
+                if (column + 1 < columns) ++column;
+                else if (row + 1 < rows) { ++row; column = 0; }
+                else return true;
+            }
         } else {
             return false;
         }
@@ -722,29 +981,57 @@ private:
         QMenu menu;
         const bool writable = canEdit();
         const auto first = block.first;
-        const auto add = [&](const QString& label, bool enabled, std::function<void()> action) {
-            auto* item = menu.addAction(label);
-            item->setEnabled(enabled);
+        const int rows = block.table.rowCount();
+        const int columns = block.table.columns();
+        const auto add = [&](QMenu* target, const QString& label, bool allowed, std::function<void()> action) {
+            auto* item = target->addAction(label);
+            item->setEnabled(allowed);
             QObject::connect(item, &QAction::triggered, item, [action] { action(); });
         };
-        add("Edit Cell", writable, [=] { beginEdit(first, row, column); });
+        add(&menu, "Edit Cell", writable, [=] { beginEdit(first, row, column); });
         menu.addSeparator();
-        add("Insert Row Above", writable && row > 0, [=] { insertRow(first, row); });
-        add("Insert Row Below", writable, [=] { insertRow(first, row + 1); });
-        add("Insert Column Left", writable, [=] { insertColumn(first, column); });
-        add("Insert Column Right", writable, [=] { insertColumn(first, column + 1); });
+        auto* rowMenu = menu.addMenu("Row");
+        add(rowMenu, "Insert Row Above", writable && row > 0, [=] { insertRow(first, row); });
+        add(rowMenu, "Insert Row Below", writable, [=] { insertRow(first, row + 1); });
+        add(rowMenu, "Duplicate Row", writable && row > 0, [=] { duplicateRow(first, row); });
+        rowMenu->addSeparator();
+        add(rowMenu, "Move Row Up", writable && row > 1, [=] { moveRow(first, row, -1); });
+        add(rowMenu, "Move Row Down", writable && row > 0 && row + 1 < rows, [=] { moveRow(first, row, 1); });
+        rowMenu->addSeparator();
+        add(rowMenu, "Delete Row", writable && row > 0, [=] { deleteRow(first, row); });
+        auto* columnMenu = menu.addMenu("Column");
+        add(columnMenu, "Insert Column Left", writable, [=] { insertColumn(first, column); });
+        add(columnMenu, "Insert Column Right", writable, [=] { insertColumn(first, column + 1); });
+        columnMenu->addSeparator();
+        add(columnMenu, "Move Column Left", writable && column > 0, [=] { moveColumn(first, column, -1); });
+        add(columnMenu, "Move Column Right", writable && column + 1 < columns, [=] { moveColumn(first, column, 1); });
+        columnMenu->addSeparator();
+        add(columnMenu, "Fit Column to Contents", writable && block.table.widths.value(column) > 0,
+            [=] { setColumnWidth(first, column, 0); });
+        add(columnMenu, "Fit All Columns", writable && tableHasWidths(block.table), [=] { setColumnWidth(first, -1, 0); });
+        columnMenu->addSeparator();
+        add(columnMenu, "Delete Column", writable, [=] { deleteColumn(first, column); });
+        auto* alignMenu = menu.addMenu("Align Column");
+        add(alignMenu, "Left", writable, [=] { alignColumn(first, column, TableAlign::Left); });
+        add(alignMenu, "Center", writable, [=] { alignColumn(first, column, TableAlign::Center); });
+        add(alignMenu, "Right", writable, [=] { alignColumn(first, column, TableAlign::Right); });
+        auto* sortMenu = menu.addMenu("Sort by This Column");
+        add(sortMenu, "Ascending (A \u2192 Z, 0 \u2192 9)", writable && rows > 2, [=] { sortRows(first, column, false); });
+        add(sortMenu, "Descending (Z \u2192 A, 9 \u2192 0)", writable && rows > 2, [=] { sortRows(first, column, true); });
         menu.addSeparator();
-        add("Delete Row", writable && row > 0, [=] { deleteRow(first, row); });
-        add("Delete Column", writable, [=] { deleteColumn(first, column); });
-        menu.addSeparator();
-        add("Align Column Left", writable, [=] { alignColumn(first, column, TableAlign::Left); });
-        add("Align Column Center", writable, [=] { alignColumn(first, column, TableAlign::Center); });
-        add("Align Column Right", writable, [=] { alignColumn(first, column, TableAlign::Right); });
-        menu.addSeparator();
-        add("Copy Table", true, [=] { if (const auto current = blockAt(first)) copyTable(*current, false); });
-        add("Delete Table", writable, [=] { if (const auto current = blockAt(first)) removeTable(*current); });
+        add(&menu, "Copy Table", true, [=] { if (const auto current = blockAt(first)) copyTable(*current, false); });
+        add(&menu, "Delete Table", writable, [=] { if (const auto current = blockAt(first)) removeTable(*current); });
         menu.exec(global);
     }
+
+    // The column whose right border is under the point, within a few pixels.
+    int borderAt(const Placement& placement, QPoint point) const {
+        if (point.y() < placement.grid.top() || point.y() > placement.grid.bottom()) return -1;
+        for (int column = 0; column + 1 < placement.columnX.size(); ++column)
+            if (std::abs(point.x() - placement.columnX[column + 1]) <= 4) return column;
+        return -1;
+    }
+    int characterWidth() const { return std::max(1, QFontMetrics(font()).horizontalAdvance(QLatin1Char('0'))); }
 
     std::pair<int, int> cellAt(const Placement& placement, QPoint point) const {
         if (!placement.grid.contains(point)) return {-1, -1};
@@ -775,11 +1062,19 @@ private:
         const QFontMetrics plainMetrics(plain);
         const QFontMetrics boldMetrics(bold);
         placement.columnX.append(x);
+        const int characters = std::max(1, plainMetrics.horizontalAdvance(QLatin1Char('0')));
         for (int column = 0; column < table.columns(); ++column) {
             int width = 48;
-            for (int row = 0; row < table.rowCount(); ++row)
-                width = std::max(width, (row == 0 ? boldMetrics : plainMetrics).horizontalAdvance(table.rows[row][column]) + 2 * kPadding + 2);
-            placement.columnX.append(placement.columnX.last() + std::min(width, 560));
+            if (resizing && resizeFirst == block.first && resizeColumn == column) {
+                width = resizeWidth;
+            } else if (column < table.widths.size() && table.widths[column] > 0) {
+                width = table.widths[column] * characters + 2 * kPadding + 2;
+            } else {
+                for (int row = 0; row < table.rowCount(); ++row)
+                    width = std::max(width, (row == 0 ? boldMetrics : plainMetrics).horizontalAdvance(table.rows[row][column]) + 2 * kPadding + 2);
+                width = std::min(width, 560);
+            }
+            placement.columnX.append(placement.columnX.last() + width);
         }
         const int rows = table.rowCount();
         const double height = std::max(bottom - top, rows * textHeight);
@@ -839,5 +1134,12 @@ private:
     int editColumn = 0;
     sptr_t shown = -1;
     bool committing = false;
+    bool resizing = false;
+    bool hovering = false;
+    sptr_t resizeFirst = -1;
+    int resizeColumn = -1;
+    int resizeOrigin = 0;
+    int resizeStart = 0;
+    int resizeWidth = 0;
 };
 }

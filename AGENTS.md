@@ -9,6 +9,16 @@ debug/development build). Follow "Install a local build on macOS" in
 `"profile": "release"`, install with `ditto`, then remove the unpacked
 `dist/macos-arm64-*` folders so only one copy exists in Spotlight.
 
+## User data must survive updates
+
+Never change `QApplication::setApplicationName`/`setOrganizationName`, the macOS
+bundle identifier (`org.notepadstar.rustpreview`) or the profile file names: they
+decide where existing settings, sessions and recovery are found. New settings
+fields need serde defaults so older profiles still load. Startup backs up the
+inherited profile into `backups/` before reading it (`snapshotProfileForUpgrade`);
+keep that call ahead of settings and recovery loading. See "Deploy and preserve
+user data" in `packaging/RELEASE.md`.
+
 ## Repository hygiene (keep in mind for every change)
 
 This is a personal project published at `github.com/T-Gojo/notepad-star`.
