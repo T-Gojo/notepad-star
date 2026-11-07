@@ -25,6 +25,7 @@
 #include <QFontDatabase>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QFontComboBox>
@@ -70,6 +71,7 @@
 #include <QInputDialog>
 #include <QIcon>
 #include <QImage>
+#include <QImageReader>
 #include <QMimeData>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -132,6 +134,17 @@ QString qs(const rust::String& text) {
 }
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+// Applies a configured editor point size. Sizes are specified in Windows points
+// (96 logical DPI), the convention of Notepad++ configs and of our defaults, but
+// macOS renders points at 72 logical DPI, which shrinks text by a quarter there.
+// Scale only the rendered size so the stored setting stays portable.
+void setEditorPointSize(ScintillaEditBase* editor, int style, int points) {
+#ifdef Q_OS_MACOS
+    editor->send(SCI_STYLESETSIZEFRACTIONAL, style, points * SC_FONT_SIZE_MULTIPLIER * 96 / 72);
+#else
+    editor->send(SCI_STYLESETSIZE, style, points);
+#endif
 }
 FilePath filePath(const QString& path) {
     FilePath value;
@@ -215,7 +228,7 @@ public:
         editor->send(SCI_SETCODEPAGE, SC_CP_UTF8);
         const auto font = QFontDatabase::systemFont(QFontDatabase::FixedFont).family().toUtf8();
         editor->sends(SCI_STYLESETFONT, STYLE_DEFAULT, font.constData());
-        editor->send(SCI_STYLESETSIZE, STYLE_DEFAULT, 11);
+        setEditorPointSize(editor, STYLE_DEFAULT, 11);
         editor->send(SCI_STYLECLEARALL);
         editor->send(SCI_SETREADONLY, true);
         setCentralWidget(editor);
@@ -658,6 +671,10 @@ public:
         if (outlineTask) delete outlineTask.data();
         // Editor callbacks must stop before the Rust controller is destroyed.
         delete takeCentralWidget();
+        // ~QWidget closes the native window after Shell's members are gone, and on macOS
+        // that hides the docks and emits visibilityChanged. Connections to this are only
+        // dropped by ~QObject, so detach the dock handlers while the members still exist.
+        for (auto* panel : findChildren<QDockWidget*>()) panel->disconnect(this);
     }
     bool startMaximized() const { return options.value("start_maximized").toBool(true); }
 
@@ -1070,7 +1087,7 @@ public:
         connect(&answerExtensionPermission, &QTimer::timeout, this, [&] {
             for (auto* widget : QApplication::topLevelWidgets()) {
                 auto* message = qobject_cast<QMessageBox*>(widget);
-                if (!message || !message->isVisible() || message->windowTitle() != "Allow Selected-Text Extension") continue;
+                if (!message || !message->isVisible() || message->objectName() != "Allow Selected-Text Extension") continue;
                 permissionPlainText = permissionPlainText && message->textFormat() == Qt::PlainText;
                 if (auto* button = message->button(extensionAnswer)) { ++permissionPrompts; button->click(); }
                 break;
@@ -1907,6 +1924,160 @@ public:
             repeatImages.resolve("smb://attacker/a.png").isEmpty() &&
             !repeatImages.resolve("art/shot.png").isEmpty(),
             "A remote inline-image reference in untrusted document text was still dereferenced.");
+        {
+            // Doc-style editing: keys treat an image as one object and never expose its reference.
+            const auto lineText = [&](sptr_t line) { return inlineImageLineText(repeatPane, line); };
+            const auto lineStart = [&](sptr_t line) { return repeatPane->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line)); };
+            const auto caretTo = [&](sptr_t position) { repeatPane->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(position)); };
+            repeatPane->sends(SCI_SETTEXT, 0, "before\n");
+            caretTo(repeatPane->send(SCI_GETLENGTH));
+            pasteImageAs(pastedImage, imageFolder);
+            QTest::keyClicks(repeatPane, "after");
+            repeatPane->send(SCI_AUTOCCANCEL);
+            const auto token = lineText(1);
+            check(parseInlineImageLine(token) && lineText(2) == "after", "The image fixture for doc-style editing was not built.");
+            caretTo(lineStart(2));
+            QTest::keyClick(repeatPane, Qt::Key_Backspace);
+            check(lineText(1) == token && lineText(2) == "after" && repeatImages.caretImageLine() == 1,
+                "Backspace after an image merged text into its reference instead of selecting the image.");
+            QTest::keyClick(repeatPane, 'x');
+            check(lineText(1) == "x" && lineText(2) == token && lineText(3) == "after",
+                "Typing at a selected image did not go on a new line above it.");
+            caretTo(lineStart(2) + 5);
+            QTest::keyClick(repeatPane, Qt::Key_Return);
+            check(lineText(2).isEmpty() && lineText(3) == token && repeatImages.caretImageLine() == 3 &&
+                repeatPane->send(SCI_GETCURRENTPOS) == lineStart(3),
+                "Enter at a selected image did not push it down as one object.");
+            QTest::keyClick(repeatPane, Qt::Key_Right);
+            check(repeatPane->send(SCI_GETCURRENTPOS) == lineStart(4), "Right arrow did not step past a selected image.");
+            caretTo(lineStart(3));
+            dispatch("copy");
+            const auto* copied = QApplication::clipboard()->mimeData();
+            check(copied && copied->hasImage() && parseInlineImageLine(copied->text()) && lineText(3) == token,
+                "Copying a selected image did not place the picture and its reference on the clipboard.");
+            QTest::keyClick(repeatPane, Qt::Key_Backspace);
+            check(lineText(2).isEmpty() && lineText(3) == "after" && repeatPane->send(SCI_GETLINECOUNT) == 4 &&
+                repeatImages.placements().empty(),
+                "Backspace on a selected image did not remove the whole image line.");
+            dispatch("undo");
+            check(lineText(3) == token, "Removing an image was not undoable as one step.");
+            repeatPane->send(SCI_SETSEL, static_cast<uptr_t>(lineStart(3) + 3), lineStart(4) + 2);
+            QTest::keyClick(repeatPane, Qt::Key_Delete);
+            check(lineText(3) == "ter" && repeatImages.placements().empty(),
+                "Deleting a selection that began inside an image left part of its reference behind.");
+
+            // An image line pasted inside a line of text still gets a line of its own.
+            repeatPane->sends(SCI_SETTEXT, 0, "foobar");
+            caretTo(3);
+            QApplication::clipboard()->setText(token);
+            dispatch("paste");
+            check(lineText(0) == "foo" && lineText(1) == token && lineText(2) == "bar",
+                "An image line pasted mid-line was not split onto its own line.");
+
+            // Dropped image files are copied, keeping their format, and inserted where they land.
+            const QScopedValueRollback<QString> folderOverride(imageFolderOverride, imageFolder);
+            const auto droppedSource = testDirectory->filePath("dropped photo.jpg");
+            check(pastedImage.save(droppedSource, "JPEG"), "Could not write the dropped-image fixture.");
+            repeatPane->sends(SCI_SETTEXT, 0, "top\nbottom");
+            QMimeData dropped;
+            dropped.setUrls({QUrl::fromLocalFile(droppedSource)});
+            const auto bottomPoint = QPoint(
+                static_cast<int>(repeatPane->send(SCI_POINTXFROMPOSITION, 0, lineStart(1))) + 1,
+                static_cast<int>(repeatPane->send(SCI_POINTYFROMPOSITION, 0, lineStart(1))) + 1);
+            check(dropMedia(current().id, repeatPane, &dropped, bottomPoint), "An image-file drop was not handled.");
+            const auto droppedEntry = parseInlineImageLine(lineText(1));
+            const QFileInfo droppedCopy(droppedEntry ? repeatImages.resolve(droppedEntry->reference) : QString());
+            check(lineText(0) == "top" && droppedEntry && lineText(2) == "bottom" && droppedCopy.isFile() &&
+                droppedCopy.suffix() == "jpg" && droppedCopy.absolutePath() == QFileInfo(imageFolder).absoluteFilePath() &&
+                droppedCopy.absoluteFilePath() != QFileInfo(droppedSource).absoluteFilePath() &&
+                current().imageFiles.contains(droppedCopy.absoluteFilePath()),
+                "A dropped image file was not copied into the image folder and inserted at the drop point.");
+
+            // Saving moves managed images beside the document and rewrites them for its file type.
+            const auto destination = testDirectory->filePath("relocated notes.md");
+            QSet<QString> adopted;
+            const auto rewrites = relocateImages(repeatPane, destination, {imageFolder}, &adopted);
+            const auto relocated = rewrites.size() == 1 ? parseInlineImageLine(QString::fromUtf8(rewrites.front().text))
+                                                        : std::optional<InlineImageLine>();
+            check(relocated && rewrites.front().line == 1 && relocated->flavor == InlineImageFlavor::Markdown &&
+                relocated->reference.startsWith("relocated notes.images/") && adopted.size() == 1 &&
+                QFileInfo(QDir(testDirectory->path()).absoluteFilePath(relocated->reference)).isFile(),
+                "Saving did not copy a managed image beside the document with a relative Markdown reference.");
+
+            // Closing releases only managed images that nothing refers to any more.
+            const auto keptImage = droppedCopy.absoluteFilePath();
+            const auto orphanImage = QFileInfo(unusedImagePath(imageFolder)).absoluteFilePath();
+            check(pastedImage.save(orphanImage, "PNG"), "Could not write the orphaned-image fixture.");
+            const auto foreignImage = testDirectory->filePath("not managed.png");
+            check(pastedImage.save(foreignImage, "PNG"), "Could not write the unmanaged-image fixture.");
+            auto probe = current();
+            auto* repeatPage = probe.page;
+            probe.imageFiles = {keptImage, orphanImage, QFileInfo(foreignImage).absoluteFilePath()};
+            const auto sideView = views.size();
+            addDocument(false);
+            check(views.size() == sideView + 1, "Could not open the side document for image release.");
+            views.back().primary->sends(SCI_SETTEXT, 0, formatInlineImageLine(*droppedEntry).toUtf8().constData());
+            static_cast<WorkspaceEditor*>(views.back().primary)->images.folder = repeatImages.folder;
+            QStringList discarded;
+            const auto released = releaseImages(probe, [&](const QString& image) { discarded.append(image); return true; });
+            closeTab(tabs->currentIndex(), true);
+            tabs->setCurrentWidget(repeatPage);
+            check(activeEditor() == repeatPane, "The image fixture document did not regain focus.");
+            check(released == 1 && discarded == QStringList{orphanImage},
+                "Closing a document released an image that was still referenced or not managed by the editor.");
+            repeatPane->sends(SCI_SETTEXT, 0, "");
+        }
+        {
+            // Tables: Markdown pipe tables are drawn as grids and edited cell by cell.
+            const auto parsed = parseTable({"| a | b |", "|:--|--:|", "| 1 \\| x | 2 |", "| 3 |"});
+            check(parsed && parsed->columns() == 2 && parsed->rowCount() == 3 && parsed->align[0] == TableAlign::Left &&
+                parsed->align[1] == TableAlign::Right && parsed->rows[1][0] == "1 | x" && parsed->rows[2][1].isEmpty(),
+                "A Markdown pipe table was not parsed with its alignment, escaped pipes and short rows.");
+            const auto reparsed = parseTable(formatTable(*parsed).split('\n'));
+            check(reparsed && reparsed->rows == parsed->rows && reparsed->align == parsed->align,
+                "A formatted table did not read back unchanged.");
+            check(!parseTable({"| a |", "| b |"}) && !parseTable({"| a |", "|---|", "| 1 | 2 |"}),
+                "Text that is not a rewritable table was accepted as one.");
+            auto& tables = static_cast<WorkspaceEditor*>(repeatPane)->tables;
+            const auto tableLine = [&](sptr_t line) { return tables.lineText(line); };
+            repeatPane->sends(SCI_SETTEXT, 0, "intro\n");
+            repeatPane->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(repeatPane->send(SCI_GETLENGTH)));
+            insertTable(2, 1);
+            check(tables.editing() && tables.editingRow() == 0 && tables.editingColumn() == 0 && tables.blockAt(1) &&
+                tableLine(0) == "intro", "Insert Table did not add a table on its own lines and open its first cell.");
+            tables.activeCellEditor()->setText("Name");
+            QTest::keyClick(tables.activeCellEditor(), Qt::Key_Tab);
+            check(tables.editingRow() == 0 && tables.editingColumn() == 1, "Tab did not move to the next cell.");
+            tables.activeCellEditor()->setText("Qty");
+            QTest::keyClick(tables.activeCellEditor(), Qt::Key_Return);
+            check(tables.editingRow() == 1 && tables.editingColumn() == 1, "Enter did not move to the cell below.");
+            tables.activeCellEditor()->setText("3");
+            QTest::keyClick(tables.activeCellEditor(), Qt::Key_Tab);
+            check(tables.editingRow() == 2 && tables.editingColumn() == 0 && tables.blockAt(1)->table.rowCount() == 3,
+                "Tab in the last cell did not add a row.");
+            QApplication::clipboard()->setText("a\tb\nc\td\n");
+            QTest::keyClick(tables.activeCellEditor(), Qt::Key_V, Qt::ControlModifier);
+            QTest::keyClick(tables.activeCellEditor(), Qt::Key_Escape);
+            const auto filled = tables.blockAt(1);
+            if (tables.editing() || !filled ||
+                filled->table.rows != QList<QStringList>{{"Name", "Qty"}, {"", "3"}, {"a", "b"}, {"c", "d"}})
+                throw std::runtime_error(("Typing and spreadsheet paste did not fill the table cells (editing=" +
+                    QString::number(tables.editing()) + "):\n" + QString::fromUtf8(text(repeatPane))).toStdString());
+            check(tables.placements().size() == 1 && tables.placements().front().block.first == 1,
+                "A table was not drawn as a grid in the editor.");
+            repeatPane->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(repeatPane->send(SCI_POSITIONFROMLINE, 3)));
+            QTest::keyClick(repeatPane, Qt::Key_Backspace);
+            check(!tables.blockAt(1) && tableLine(0) == "intro", "Backspace on a selected table did not remove it whole.");
+            dispatch("undo");
+            check(tables.blockAt(1) && tables.blockAt(1)->table.rowCount() == 4, "Removing a table was not undoable.");
+            check(tables.insertColumn(1, 1) && tables.blockAt(1)->table.columns() == 3 &&
+                tables.blockAt(1)->table.rows[0][2] == "Qty" && tables.blockAt(1)->table.rows[1][2] == "3", "Inserting a column did not shift the cells to its right.");
+            check(tables.deleteRow(1, 1) && tables.blockAt(1)->table.rowCount() == 3 && !tables.deleteRow(1, 0),
+                "Row deletion removed the wrong row or allowed deleting the header.");
+            check(tables.alignColumn(1, 0, TableAlign::Right) && tables.blockAt(1)->table.align[0] == TableAlign::Right,
+                "Column alignment was not stored in the table.");
+            repeatPane->sends(SCI_SETTEXT, 0, "");
+        }
         const QByteArray summaryFixture("\xc3\xa9 \xf0\x9f\x9a\x80\r\na\rb\n");
         repeatPane->sends(SCI_ADDTEXT, summaryFixture.size(), summaryFixture.constData());
         bool summaryShown = false;
@@ -1916,7 +2087,7 @@ public:
         connect(&answerSummary, &QTimer::timeout, this, [&] {
             for (auto* widget : QApplication::topLevelWidgets()) {
                 auto* message = qobject_cast<QMessageBox*>(widget);
-                if (!message || !message->isVisible() || message->windowTitle() != "Document Summary") continue;
+                if (!message || !message->isVisible() || message->objectName() != "Document Summary") continue;
                 summaryShown = true;
                 summaryCorrect = message->textFormat() == Qt::PlainText &&
                     message->text().contains("UTF-8 buffer bytes: 13") && message->text().contains("Unicode scalar values: 9");
@@ -2500,7 +2671,7 @@ private:
         connect(&dialogs, &QTimer::timeout, this, [&] {
             for (auto* widget : QApplication::topLevelWidgets()) {
                 auto* message = qobject_cast<QMessageBox*>(widget);
-                if (message && message->isVisible() && message->windowTitle() == "Unsaved document") {
+                if (message && message->isVisible() && message->objectName() == "Unsaved document") {
                     ++prompts;
                     message->button(answer)->click();
                 }
@@ -2695,6 +2866,9 @@ private:
         bool previousReadOnly = false;
         QString functionKey;
         bool inlineImages = false;
+        // Managed image files this document has created or referenced this session;
+        // the ones it no longer uses are released when its tab closes.
+        QSet<QString> imageFiles;
     };
     std::optional<languages::LanguageCatalog> catalog;
     QMap<QString, std::optional<languages::CompletionData>> completionCache;
@@ -2709,6 +2883,7 @@ private:
     bool comparisonEnabled = false;
     QTimer* toolsTimer = nullptr;
     QTimer* inlineImageTimer = nullptr;
+    QString imageFolderOverride;
     std::set<std::uint64_t> pendingInlineImages;
     QDockWidget* jsonDock = nullptr;
     JsonPanel* jsonPanel = nullptr;
@@ -4318,6 +4493,7 @@ private:
         QMessageBox dialog(this);
         dialog.setTextFormat(Qt::PlainText);
         dialog.setWindowTitle(title);
+        dialog.setObjectName(title);  // macOS discards message-box titles.
         dialog.setText(details);
         dialog.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
         dialog.setDefaultButton(QMessageBox::Cancel);
@@ -4765,11 +4941,11 @@ private:
             pane->send(SCI_GETSTYLEDTEXTFULL, 0, reinterpret_cast<sptr_t>(&range));
             QList<StyledRun> runs;
             for (sptr_t position = 0; position < end - start;) {
-                const auto style = static_cast<unsigned char>(styled[position * 2 + 1]);
+                const auto style = static_cast<unsigned char>(styled[static_cast<qsizetype>(position * 2 + 1)]);
                 QByteArray characters;
                 do {
-                    characters.push_back(styled[position * 2]); ++position;
-                } while (position < end - start && static_cast<unsigned char>(styled[position * 2 + 1]) == style);
+                    characters.push_back(styled[static_cast<qsizetype>(position * 2)]); ++position;
+                } while (position < end - start && static_cast<unsigned char>(styled[static_cast<qsizetype>(position * 2 + 1)]) == style);
                 QStringDecoder decoder(QStringDecoder::Utf8);
                 const QString content = decoder.decode(characters);
                 check(!decoder.hasError(), "Lexer styling split a UTF-8 character; export was not produced.");
@@ -4924,7 +5100,7 @@ private:
             return QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
         }().toUtf8();
         editor->sends(SCI_STYLESETFONT, STYLE_DEFAULT, family.constData());
-        editor->send(SCI_STYLESETSIZE, STYLE_DEFAULT, options.value("font_size").toInt(11));
+        setEditorPointSize(editor, STYLE_DEFAULT, options.value("font_size").toInt(11));
         editor->send(SCI_STYLESETCHECKMONOSPACED, STYLE_DEFAULT, true);
         editor->send(SCI_STYLECLEARALL);
         editor->send(SCI_STYLESETFORE, STYLE_LINENUMBER, dark ? 0xa4968f : 0x877c75);
@@ -5033,7 +5209,7 @@ private:
         const auto open = contents.lastIndexOf(api->startFunction.toLatin1(), position - 1);
         if (open < 0) { if (manual) statusBar()->showMessage("Place the caret after a function's opening delimiter."); return; }
         auto end = static_cast<sptr_t>(open);
-        while (end > 0 && std::isspace(static_cast<unsigned char>(contents[end - 1]))) --end;
+        while (end > 0 && std::isspace(static_cast<unsigned char>(contents[static_cast<qsizetype>(end - 1)]))) --end;
         const auto start = pane->send(SCI_WORDSTARTPOSITION, end, true);
         const auto name = QString::fromUtf8(contents.mid(start, end - start));
         for (const auto& entry : api->entries) {
@@ -5253,6 +5429,12 @@ private:
             pane->installEventFilter(this);
             pane->images.commit = [this, id, pane](sptr_t line, InlineImageLine image) {
                 guarded([&] { for (auto& view : views) if (view.id == id) resizeInlineImage(view, pane, line, image); });
+            };
+            pane->tables.editable = [this] { return !macroPlaybackActive && !macroRecording; };
+            pane->mediaDropped = [this, id, pane](const QMimeData* mime, QPoint point) {
+                bool handled = true;
+                guarded([&] { handled = dropMedia(id, pane, mime, point); });
+                return handled;
             };
             connect(pane, &QObject::destroyed, this, [this, pane] { composingEditors.remove(pane); });
             connect(pane, &ScintillaEditBase::zoom, this, [this, pane, id](int zoom) {
@@ -5530,9 +5712,38 @@ private:
                 "Replace " + destination + "?", QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
                 return false;
         }
-        const auto contents = text(view.primary);
-        save_document(*controller, view.id, rs(contents), filePath(destination),
-            rust::Str(prepared.data(), prepared.size()), copy);
+        std::vector<ImageRewrite> rewrites;
+        if (!destination.isEmpty()) {
+            QStringList managed{untitledImageFolder(), imageFolderOverride};
+            if (!oldPath.isEmpty()) managed.append(documentImageFolder(oldPath));
+            rewrites = relocateImages(view.primary, destination, managed, copy ? nullptr : &view.imageFiles);
+        }
+        auto contents = text(view.primary);
+        const bool rewritten = !copy && !rewrites.empty();
+        if (rewritten) {
+            // One undoable step, so the edit can be taken back if the save itself fails.
+            view.primary->send(SCI_BEGINUNDOACTION);
+            for (auto it = rewrites.rbegin(); it != rewrites.rend(); ++it) {
+                view.primary->send(SCI_SETTARGETRANGE, view.primary->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(it->line)),
+                    view.primary->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(it->line)));
+                view.primary->sends(SCI_REPLACETARGET, static_cast<uptr_t>(it->text.size()), it->text.constData());
+            }
+            view.primary->send(SCI_ENDUNDOACTION);
+            contents = text(view.primary);
+        } else if (copy) {
+            for (auto it = rewrites.rbegin(); it != rewrites.rend(); ++it) {
+                const auto start = view.primary->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(it->line));
+                const auto end = view.primary->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(it->line));
+                contents.replace(static_cast<qsizetype>(start), static_cast<qsizetype>(end - start), it->text);
+            }
+        }
+        try {
+            save_document(*controller, view.id, rs(contents), filePath(destination),
+                rust::Str(prepared.data(), prepared.size()), copy);
+        } catch (...) {
+            if (rewritten) view.primary->send(SCI_UNDO);
+            throw;
+        }
         if (!document_dirty(*controller, view.id)) view.primary->send(SCI_SETSAVEPOINT);
         if (!copy && oldPath.isEmpty() && view.udlXml.isEmpty()) applyLexer(view, detectedLexer(pathText(document_path(*controller, view.id))));
         if (!copy) view.diskChanged = false;
@@ -5547,9 +5758,14 @@ private:
     bool confirmDiscard(const DocumentView& view) {
         if (!document_dirty(*controller, view.id)) return true;
         tabs->setCurrentWidget(view.page);
-        const auto answer = QMessageBox::warning(this, "Unsaved document",
+        // A named instance rather than QMessageBox::warning: macOS discards message-box
+        // titles, so the object name is what identifies this prompt there.
+        QMessageBox dialog(QMessageBox::Warning, "Unsaved document",
             "Save changes to " + qs(document_title(*controller, view.id)) + "?",
-            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, this);
+        dialog.setObjectName("Unsaved document");
+        dialog.setDefaultButton(QMessageBox::Save);
+        const auto answer = static_cast<QMessageBox::StandardButton>(dialog.exec());
         if (answer == QMessageBox::Cancel) return false;
         return answer == QMessageBox::Discard || saveView(current(), false);
     }
@@ -5559,6 +5775,16 @@ private:
         check(it != views.end(), "Tab no longer exists.");
         if (!confirmed && !confirmDiscard(*it)) return false;
         if (it->id == comparisonTarget || it->id == comparisonLeft) clearComparisonMarkers();
+        try {
+            // Unused pasted images go to the Trash, so a mistaken close can still be recovered.
+            const auto released = releaseImages(*it, [this](const QString& image) {
+                return testMode ? QFile::remove(image) : QFile::moveToTrash(image);
+            });
+            if (released > 0) statusBar()->showMessage(QString("Moved %1 unused pasted image%2 to the Trash.")
+                .arg(released).arg(released == 1 ? "" : "s"));
+        } catch (const std::exception&) {
+            // Releasing images is housekeeping; it never blocks closing the tab.
+        }
         RecentEntry closed;
         closed.path = document_path(*controller, it->id);
         closed.encoding = document_saved_encoding(*controller, it->id);
@@ -6012,6 +6238,8 @@ private:
             for (const auto line : inlineImageCandidateLines(primary)) {
                 const auto image = parseInlineImageLine(inlineImageLineText(primary, line));
                 if (!image) continue;
+                const auto file = primary->images.resolve(image->reference);
+                if (!file.isEmpty() && imageFileIsManaged(file, documentPath)) view.imageFiles.insert(QFileInfo(file).absoluteFilePath());
                 const int wrapped = std::max(1, static_cast<int>(primary->send(SCI_WRAPCOUNT, static_cast<uptr_t>(line))));
                 reserved.emplace_back(line, std::max(0, primary->images.rowsFor(*image, textHeight) - wrapped));
             }
@@ -6070,26 +6298,39 @@ private:
         return mime && mime->hasImage() && !mime->hasText() && !mime->hasUrls() && !clipboardImage().isNull();
     }
     // Pasted images become sibling files so the document stays plain text while the canvas shows the picture.
-    QString inlineImageFolder() {
-        const auto documentPath = pathText(document_path(*controller, current().id));
-        if (documentPath.isEmpty()) {
-            const auto base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-            QDir root(base.isEmpty() ? QDir::tempPath() : base);
-            check(root.mkpath("pasted-images"), "The folder for pasted images could not be created.");
-            return root.absoluteFilePath("pasted-images");
-        }
-        const QFileInfo info(documentPath);
-        QDir root(info.absolutePath());
-        const auto name = info.completeBaseName() + ".images";
-        check(root.mkpath(name), "The folder for pasted images could not be created beside the document.");
-        return root.absoluteFilePath(name);
+    // Untitled documents keep pasted images in the profile until they are first saved.
+    static QString untitledImageFolder() {
+        const auto base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+        return QDir(base.isEmpty() ? QDir::tempPath() : base).absoluteFilePath("pasted-images");
     }
-    static QString unusedImagePath(const QString& folder) {
+    // A saved document keeps its images in "<name>.images" beside it.
+    static QString documentImageFolder(const QString& documentPath) {
+        const QFileInfo info(documentPath);
+        return QDir(info.absolutePath()).absoluteFilePath(info.completeBaseName() + ".images");
+    }
+    // Managed images are the ones this editor stores on a document's behalf; only those are
+    // ever copied on save or released on close. Images the user keeps elsewhere are never touched.
+    bool imageFileIsManaged(const QString& file, const QString& documentPath) const {
+        const auto folder = QFileInfo(file).absolutePath();
+        if (!imageFolderOverride.isEmpty() && folder == QDir(imageFolderOverride).absolutePath()) return true;
+        return folder == QDir(untitledImageFolder()).absolutePath() ||
+            (!documentPath.isEmpty() && folder == QDir(documentImageFolder(documentPath)).absolutePath());
+    }
+    QString inlineImageFolder() {
+        if (!imageFolderOverride.isEmpty()) return imageFolderOverride;
+        const auto documentPath = pathText(document_path(*controller, current().id));
+        const auto folder = documentPath.isEmpty() ? untitledImageFolder() : documentImageFolder(documentPath);
+        check(QDir().mkpath(folder), documentPath.isEmpty() ? "The folder for pasted images could not be created."
+                                                            : "The folder for pasted images could not be created beside the document.");
+        return folder;
+    }
+    static QString unusedImagePath(const QString& folder, QString suffix = "png") {
         const QDir root(folder);
+        suffix = suffix.toLower();
         const auto stamp = QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss");
         for (int attempt = 1; attempt <= 999; ++attempt) {
-            const auto name = attempt == 1 ? "image-" + stamp + ".png" :
-                "image-" + stamp + "-" + QString::number(attempt) + ".png";
+            const auto name = attempt == 1 ? "image-" + stamp + "." + suffix :
+                "image-" + stamp + "-" + QString::number(attempt) + "." + suffix;
             if (!QFileInfo::exists(root.filePath(name))) return root.absoluteFilePath(name);
         }
         throw std::runtime_error("This folder already holds every pasted-image name for the current second.");
@@ -6118,26 +6359,45 @@ private:
         payload += eol;
         return payload;
     }
-    void pasteImageAs(const QImage& image, const QString& folder) {
-        check(!macroPlaybackActive && !macroRecording, "Finish the macro before pasting an image.");
-        check(!image.isNull() && image.width() > 0 && image.height() > 0, "The clipboard does not contain a readable image.");
-        check(static_cast<qint64>(image.width()) * image.height() <= 64LL * 1024 * 1024,
-            "The clipboard image exceeds the 64-megapixel paste limit.");
-        auto* pane = activeEditor();
-        check(!pane->send(SCI_GETREADONLY), "Document is read-only.");
-        check(QFileInfo(folder).isDir(), "The folder for pasted images does not exist.");
-        const auto absolute = unusedImagePath(folder);
-        check(disk_updated_documents(*controller, filePath(absolute)).empty(),
-            "That image file is open in this editor; paste again.");
+    // Builds the line for an image file that is about to be placed in the current document.
+    InlineImageLine imageEntryFor(ScintillaEditBase* pane, const QString& absolute, QSize natural) {
         const auto documentPath = pathText(document_path(*controller, current().id));
         InlineImageLine entry;
         entry.flavor = inlineImageFlavorFor(documentPath);
         entry.reference = inlineImageReference(documentPath, absolute);
         if (entry.flavor != InlineImageFlavor::Token) entry.alt = "pasted image";
-        const auto size = fittedImageSize(pane, image.size());
+        const auto size = fittedImageSize(pane, natural);
         entry.width = size.width();
         entry.height = size.height();
         check(inlineImageLineRoundTrips(entry), "The pasted image path cannot be written on a single line.");
+        return entry;
+    }
+    void insertImageEntry(const InlineImageLine& entry, const QString& absolute) {
+        insertGeneratedText(inlineImagePayload(activeEditor(), formatInlineImageLine(entry)));
+        current().imageFiles.insert(QFileInfo(absolute).absoluteFilePath());
+        refreshInlineImages(current());
+    }
+    // Never split another image's reference: insert before a selected image, over whole image lines.
+    ScintillaEditBase* prepareImageInsertion() {
+        check(!macroPlaybackActive && !macroRecording, "Finish the macro before inserting an image.");
+        auto* pane = activeEditor();
+        check(!pane->send(SCI_GETREADONLY), "Document is read-only.");
+        auto* workspace = static_cast<WorkspaceEditor*>(pane);
+        workspace->syncObjects();
+        workspace->tables.widenSelectionOverTables();
+        workspace->images.widenSelectionOverImages();
+        return pane;
+    }
+    void pasteImageAs(const QImage& image, const QString& folder) {
+        check(!image.isNull() && image.width() > 0 && image.height() > 0, "The clipboard does not contain a readable image.");
+        check(static_cast<qint64>(image.width()) * image.height() <= 64LL * 1024 * 1024,
+            "The clipboard image exceeds the 64-megapixel paste limit.");
+        auto* pane = prepareImageInsertion();
+        check(QFileInfo(folder).isDir(), "The folder for pasted images does not exist.");
+        const auto absolute = unusedImagePath(folder);
+        check(disk_updated_documents(*controller, filePath(absolute)).empty(),
+            "That image file is open in this editor; paste again.");
+        const auto entry = imageEntryFor(pane, absolute, image.size());
         QByteArray encoded;
         {
             QBuffer buffer(&encoded);
@@ -6148,8 +6408,160 @@ private:
         QSaveFile file(absolute);
         check(file.open(QIODevice::WriteOnly) && file.write(encoded) == encoded.size() && file.commit(),
             "The pasted image could not be written to disk.");
-        insertGeneratedText(inlineImagePayload(pane, formatInlineImageLine(entry)));
-        refreshInlineImages(current());
+        insertImageEntry(entry, absolute);
+    }
+    static bool isImageFile(const QString& path) {
+        static const QStringList suffixes{"png", "jpg", "jpeg", "gif", "bmp", "webp", "tif", "tiff", "ico", "svg"};
+        const QFileInfo info(path);
+        return info.isFile() && suffixes.contains(info.suffix().toLower()) && QImageReader(path).canRead();
+    }
+    // Copies an image file (keeping its format) into the document's image folder and inserts it.
+    void insertImageFile(const QString& source, const QString& folder) {
+        const QFileInfo info(source);
+        check(info.isFile() && info.size() > 0 && info.size() <= 64LL * 1024 * 1024,
+            "Only image files up to 64 MiB can be inserted.");
+        QImageReader reader(source);
+        QSize natural = reader.canRead() ? reader.size() : QSize();
+        if (reader.canRead() && !natural.isValid()) natural = reader.read().size();
+        check(natural.isValid() && natural.width() > 0 && natural.height() > 0 &&
+            static_cast<qint64>(natural.width()) * natural.height() <= 64LL * 1024 * 1024,
+            "The dropped file is not a readable image within the 64-megapixel limit.");
+        auto* pane = prepareImageInsertion();
+        check(QFileInfo(folder).isDir(), "The folder for pasted images does not exist.");
+        const auto absolute = unusedImagePath(folder, info.suffix().isEmpty() ? QString("png") : info.suffix());
+        const auto entry = imageEntryFor(pane, absolute, natural);
+        check(QFile::copy(source, absolute), "The image could not be copied into the document's image folder.");
+        insertImageEntry(entry, absolute);
+    }
+    // Drops on the editor: image files and dragged pictures are inserted where they land,
+    // other local files are opened as documents.
+    bool dropMedia(std::uint64_t id, ScintillaEditBase* pane, const QMimeData* mime, QPoint point) {
+        if (macroPlaybackActive) return true;
+        QStringList pictures;
+        QStringList documents;
+        for (const auto& url : mime->urls())
+            if (url.isLocalFile()) (isImageFile(url.toLocalFile()) ? pictures : documents).append(url.toLocalFile());
+        const bool dragged = pictures.isEmpty() && documents.isEmpty() && mime->hasImage();
+        if (pictures.isEmpty() && documents.isEmpty() && !dragged) return false;
+        if (!pictures.isEmpty() || dragged) {
+            for (auto& view : views) if (view.id == id) {
+                tabs->setCurrentWidget(view.page);
+                view.focused = pane;
+            }
+            pane->setFocus();
+            const auto position = pane->send(SCI_POSITIONFROMPOINTCLOSE, static_cast<uptr_t>(point.x()), point.y());
+            pane->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(position >= 0 ? position
+                : pane->send(SCI_POSITIONFROMPOINT, static_cast<uptr_t>(point.x()), point.y())));
+            if (dragged) pasteImageAs(qvariant_cast<QImage>(mime->imageData()), inlineImageFolder());
+            for (const auto& picture : pictures) insertImageFile(picture, inlineImageFolder());
+            statusBar()->showMessage("Inserted the image into the document. Click it, then drag its corner grip to resize.");
+        }
+        for (const auto& document : documents) openFile(document);
+        return true;
+    }
+    struct ImageRewrite { sptr_t line; QByteArray text; };
+    // A document about to live at destination keeps working images: managed images move into
+    // the destination's image folder, every reference is rewritten relative to its new home,
+    // and plain tokens take the markup of the destination's file type.
+    std::vector<ImageRewrite> relocateImages(ScintillaEditBase* pane, const QString& destination,
+        const QStringList& managed, QSet<QString>* adopted) {
+        std::vector<ImageRewrite> rewrites;
+        const auto& images = static_cast<WorkspaceEditor*>(pane)->images;
+        const auto targetFolder = documentImageFolder(destination);
+        const auto flavor = inlineImageFlavorFor(destination);
+        for (const auto line : inlineImageCandidateLines(pane)) {
+            const auto original = inlineImageLineText(pane, line);
+            const auto existing = parseInlineImageLine(original);
+            if (!existing) continue;
+            const auto source = images.resolve(existing->reference);
+            if (source.isEmpty() || !QFileInfo(source).isFile()) continue;
+            auto file = QFileInfo(source).absoluteFilePath();
+            const auto folder = QFileInfo(file).absolutePath();
+            const bool owned = std::any_of(managed.begin(), managed.end(),
+                [&](const QString& root) { return !root.isEmpty() && folder == QDir(root).absolutePath(); });
+            if (owned && folder != QDir(targetFolder).absolutePath() && QDir().mkpath(targetFolder)) {
+                auto copied = QDir(targetFolder).absoluteFilePath(QFileInfo(file).fileName());
+                if (QFileInfo::exists(copied)) copied = unusedImagePath(targetFolder, QFileInfo(file).suffix());
+                if (QFile::copy(file, copied)) {
+                    file = copied;
+                    if (adopted) adopted->insert(copied);
+                }
+            }
+            auto updated = *existing;
+            updated.reference = inlineImageReference(destination, file);
+            if (updated.flavor == InlineImageFlavor::Token && flavor != InlineImageFlavor::Token) {
+                updated.flavor = flavor;
+                if (updated.alt.isEmpty()) updated.alt = "pasted image";
+            }
+            if (!inlineImageLineRoundTrips(updated)) continue;
+            const auto replacement = formatInlineImageLine(updated);
+            if (replacement != original) rewrites.push_back({line, replacement.toUtf8()});
+        }
+        return rewrites;
+    }
+    // Releases the managed images a closing document no longer uses. It runs when the tab
+    // closes, after its undo history stops needing them. A file stays while any open
+    // document or any saved file sharing the image folder still refers to it.
+    int releaseImages(const DocumentView& closing, const std::function<bool(const QString&)>& discard) {
+        if (closing.imageFiles.isEmpty()) return 0;
+        const auto documentPath = pathText(document_path(*controller, closing.id));
+        QSet<QString> referenced;
+        for (const auto& view : views) {
+            if (view.id == closing.id || view.primary->send(SCI_GETLENGTH) > 32 * 1024 * 1024) continue;
+            collectInlineImageFiles(text(view.primary), static_cast<WorkspaceEditor*>(view.primary)->images.folder, referenced);
+        }
+        if (!documentPath.isEmpty()) {
+            const QFileInfo info(documentPath);
+            for (const auto& sibling : info.dir().entryInfoList(QStringList{info.completeBaseName() + ".*"}, QDir::Files)) {
+                if (sibling.size() > 32 * 1024 * 1024) continue;
+                QFile file(sibling.absoluteFilePath());
+                if (file.open(QIODevice::ReadOnly)) collectInlineImageFiles(file.readAll(), sibling.absolutePath(), referenced);
+            }
+        }
+        int released = 0;
+        for (const auto& image : closing.imageFiles)
+            if (!referenced.contains(image) && imageFileIsManaged(image, documentPath) && QFileInfo(image).isFile() && discard(image))
+                ++released;
+        if (!documentPath.isEmpty()) QDir().rmdir(documentImageFolder(documentPath));
+        return released;
+    }
+    // Inserts a blank table on lines of its own and starts editing its first header cell.
+    void insertTable(int columns, int bodyRows) {
+        auto* pane = prepareImageInsertion();
+        check(pane->send(SCI_GETSELECTIONS) == 1 && !pane->send(SCI_SELECTIONISRECTANGLE),
+            "Inserting a table requires one stream selection.");
+        const auto mode = pane->send(SCI_GETEOLMODE);
+        const auto table = formatTable(blankTable(columns, bodyRows),
+            mode == SC_EOL_CR ? QStringLiteral("\r") : mode == SC_EOL_CRLF ? QStringLiteral("\r\n") : QStringLiteral("\n"));
+        const auto payload = inlineImagePayload(pane, table);
+        const auto start = pane->send(SCI_GETSELECTIONSTART);
+        const auto line = pane->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(start)) +
+            (start == pane->send(SCI_POSITIONFROMLINE, pane->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(start))) ? 0 : 1);
+        pane->send(SCI_BEGINUNDOACTION);
+        pane->sends(SCI_REPLACESEL, 0, payload.constData());
+        pane->send(SCI_ENDUNDOACTION);
+        static_cast<WorkspaceEditor*>(pane)->tables.beginEdit(line, 0, 0);
+        statusBar()->showMessage("Type into the cell. Tab or Enter moves on, Esc leaves the table; right-click for rows and columns.");
+    }
+    void insertTableDialog() {
+        QDialog dialog(this);
+        dialog.setWindowTitle("Insert Table");
+        dialog.setObjectName("Insert Table");
+        auto* layout = new QFormLayout(&dialog);
+        auto* columns = new QSpinBox(&dialog);
+        columns->setRange(1, kTableMaxColumns);
+        columns->setValue(3);
+        auto* rows = new QSpinBox(&dialog);
+        rows->setRange(1, 500);
+        rows->setValue(3);
+        layout->addRow("Columns", columns);
+        layout->addRow("Rows (below the header)", rows);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        layout->addRow(buttons);
+        if (dialog.exec() != QDialog::Accepted) return;
+        insertTable(columns->value(), rows->value());
     }
     void pasteImage() {
         const auto image = clipboardImage();
@@ -6173,6 +6585,7 @@ private:
         summary += "\nSelections: " + QString::number(pane->send(SCI_GETSELECTIONS));
         QMessageBox dialog(this);
         dialog.setWindowTitle("Document Summary");
+        dialog.setObjectName("Document Summary");  // macOS discards message-box titles.
         dialog.setTextFormat(Qt::PlainText);
         dialog.setText(summary);
         dialog.exec();
@@ -6768,6 +7181,7 @@ private:
         if (id == "document_summary") { documentSummary(); return; }
         if (id == "date_time_short" || id == "date_time_long" || id == "date_time_custom") { insertDateTime(id); return; }
         if (id == "paste_image" || (id == "paste" && clipboardHoldsOnlyImage())) { pasteImage(); return; }
+        if (id == "insert_table") { insertTableDialog(); return; }
         if (id == "join_lines" || id == "split_lines" || id == "blank_line_above" || id == "blank_line_below") {
             lineLayout(id); return;
         }
@@ -7079,6 +7493,38 @@ private:
             {"paste", SCI_PASTE}, {"select_all", SCI_SELECTALL}, {"zoom_in", SCI_ZOOMIN},
             {"zoom_out", SCI_ZOOMOUT}, {"zoom_reset", SCI_SETZOOM},
             {"delete_line", SCI_LINEDELETE}, {"move_line_up", SCI_MOVESELECTEDLINESUP}, {"move_line_down", SCI_MOVESELECTEDLINESDOWN}};
+        if (id == "copy" || id == "cut" || id == "paste") {
+            // A selected inline image or table is one object: copy/cut take it whole, paste goes above it.
+            auto* workspace = static_cast<WorkspaceEditor*>(editor);
+            auto& images = workspace->images;
+            if (id != "paste" && (workspace->tables.copyCaretTable(id == "cut") || images.copyCaretImage(id == "cut"))) {
+                workspace->syncObjects();
+                return;
+            }
+            if (id == "paste") workspace->tables.openLineAboveCaretTable();
+            if (id != "copy") workspace->tables.widenSelectionOverTables();
+            if (id == "paste") {
+                const auto* mime = QApplication::clipboard()->mimeData();
+                // Image files copied in a file manager are inserted as images, like a drop.
+                QStringList pictures;
+                if (mime && mime->hasUrls()) for (const auto& url : mime->urls())
+                    if (url.isLocalFile() && isImageFile(url.toLocalFile())) pictures.append(url.toLocalFile());
+                if (mime && !pictures.isEmpty() && pictures.size() == mime->urls().size()) {
+                    for (const auto& picture : pictures) insertImageFile(picture, inlineImageFolder());
+                    return;
+                }
+                // An image line pasted inside other text still gets a line of its own.
+                const auto pasted = mime && mime->hasText() ? mime->text().trimmed() : QString();
+                if (!pasted.contains('\n') && !pasted.contains('\r') && parseInlineImageLine(pasted)) {
+                    prepareImageInsertion();
+                    insertGeneratedText(inlineImagePayload(editor, pasted));
+                    refreshInlineImages(current());
+                    return;
+                }
+                images.openLineAboveCaretImage();
+            }
+            if (id != "copy") images.widenSelectionOverImages();
+        }
         if (const auto it = messages.find(id); it != messages.end()) { editor->send(it->second); return; }
         if (id == "find" || id == "replace") { openSearch(id == "replace"); }
         else if (id == "replace_all") replace(true);
@@ -7283,8 +7729,14 @@ private:
             event->ignore();
             return;
         }
-        for (const auto& url : event->mimeData()->urls())
-            if (url.isLocalFile()) guarded([&] { openFile(url.toLocalFile()); });
+        for (const auto& url : event->mimeData()->urls()) {
+            if (!url.isLocalFile()) continue;
+            const auto path = url.toLocalFile();
+            guarded([&] {
+                if (isImageFile(path) && tabs->count() > 0) insertImageFile(path, inlineImageFolder());
+                else openFile(path);
+            });
+        }
         event->acceptProposedAction();
     }
 };

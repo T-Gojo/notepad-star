@@ -3,6 +3,11 @@
 
 #include <QByteArray>
 #include <QCache>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMimeData>
 #include <QColor>
 #include <QCursor>
 #include <QDateTime>
@@ -135,6 +140,28 @@ inline bool inlineImageLineRoundTrips(const InlineImageLine& image) {
         parsed->alt == image.alt && parsed->width == image.width && parsed->height == image.height;
 }
 
+// Resolves a reference against the folder of the document that holds it; remote
+// references resolve to nothing.
+inline QString resolveInlineImage(const QString& folder, const QString& reference) {
+    if (reference.isEmpty() || inlineImageReferenceIsRemote(reference)) return {};
+    const QFileInfo info(reference);
+    if (info.isAbsolute() || folder.isEmpty()) return QDir::cleanPath(reference);
+    const auto joined = QDir::cleanPath(QDir(folder).absoluteFilePath(reference));
+    return inlineImageReferenceIsRemote(joined) ? QString() : joined;
+}
+
+// Collects the image files referenced by any line of a document's text.
+template <typename Set>
+inline void collectInlineImageFiles(const QByteArray& text, const QString& folder, Set& files) {
+    for (const auto& raw : text.split('\n')) {
+        if (raw.size() > 4096 || (!raw.contains("[[image:") && !raw.contains("![") && !raw.contains("<img "))) continue;
+        const auto image = parseInlineImageLine(QString::fromUtf8(raw));
+        if (!image) continue;
+        const auto path = resolveInlineImage(folder, image->reference);
+        if (!path.isEmpty()) files.insert(QFileInfo(path).absoluteFilePath());
+    }
+}
+
 // A whole line is read at once; anything longer than a path plus its size cannot be an image line.
 inline QString inlineImageLineText(const ScintillaEditBase* editor, sptr_t line) {
     const sptr_t length = editor->send(SCI_LINELENGTH, static_cast<uptr_t>(line));
@@ -166,8 +193,160 @@ public:
     bool enabled = true;
 
     void forget() {
-        selected = -1;
         dragging = false;
+        shown = -1;
+    }
+
+    // Doc-style editing. An image line behaves as one object: a caret on it means the
+    // image is selected and sits before the picture, so its hidden reference text can
+    // never be partially edited into a visible, broken path.
+    std::optional<InlineImageLine> imageOn(sptr_t line) const {
+        if (!enabled || line < 0 || line >= editor->send(SCI_GETLINECOUNT)) return std::nullopt;
+        return parseInlineImageLine(inlineImageLineText(editor, line));
+    }
+
+    sptr_t caretImageLine() const {
+        if (!enabled || editor->send(SCI_GETSELECTIONS) != 1 || !editor->send(SCI_GETSELECTIONEMPTY)) return -1;
+        const auto line = editor->send(SCI_LINEFROMPOSITION, editor->send(SCI_GETCURRENTPOS));
+        return imageOn(line) ? line : -1;
+    }
+
+    // Pins a caret that landed inside an image's reference to the start of its line and
+    // repaints when the selected image changes.
+    void syncSelection() {
+        const auto line = caretImageLine();
+        if (line >= 0) {
+            const auto start = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line));
+            if (editor->send(SCI_GETCURRENTPOS) != start) editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(start));
+        }
+        if (line == shown) return;
+        shown = line;
+        editor->viewport()->update();
+    }
+
+    // Removes an image line together with its line break as one undoable step.
+    bool removeImage(sptr_t line) {
+        if (editor->send(SCI_GETREADONLY) || !imageOn(line)) return false;
+        const auto count = editor->send(SCI_GETLINECOUNT);
+        auto start = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line));
+        const auto end = line + 1 < count ? editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line + 1))
+                                          : editor->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(line));
+        if (line + 1 >= count && line > 0) start = editor->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(line - 1));
+        editor->send(SCI_BEGINUNDOACTION);
+        editor->send(SCI_DELETERANGE, static_cast<uptr_t>(start), end - start);
+        editor->send(SCI_ENDUNDOACTION);
+        editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(start));
+        return true;
+    }
+
+    // Before inserting at a selected image, opens an empty line above it and moves the
+    // caret there. Returns false when the caret is not on an image.
+    bool openLineAboveCaretImage() {
+        const auto line = caretImageLine();
+        if (line < 0 || editor->send(SCI_GETREADONLY)) return false;
+        const auto start = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line));
+        editor->sends(SCI_INSERTTEXT, static_cast<uptr_t>(start), eol().constData());
+        editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(start));
+        return true;
+    }
+
+    // Copies a selected image as the picture itself plus its reference line, so it pastes
+    // into other applications as an image and back into this editor as an image line.
+    bool copyCaretImage(bool cut) {
+        const auto line = caretImageLine();
+        if (line < 0) return false;
+        const auto info = imageOn(line);
+        auto portable = *info;
+        const auto path = resolve(info->reference);
+        if (!path.isEmpty()) portable.reference = QDir::fromNativeSeparators(QFileInfo(path).absoluteFilePath());
+        auto* mime = new QMimeData;
+        mime->setText((inlineImageLineRoundTrips(portable) ? formatInlineImageLine(portable)
+                                                           : inlineImageLineText(editor, line)) + QString::fromLatin1(eol()));
+        const QFileInfo file(path);
+        QImage image;
+        if (!path.isEmpty() && file.isFile() && file.size() <= 64LL * 1024 * 1024 && image.load(path))
+            mime->setImageData(image);
+        QGuiApplication::clipboard()->setMimeData(mime);
+        if (cut) removeImage(line);
+        return true;
+    }
+
+    // Returns true when the key was fully handled here.
+    bool keyPress(QKeyEvent* event) {
+        if (!enabled || editor->send(SCI_GETSELECTIONS) != 1 || editor->send(SCI_SELECTIONISRECTANGLE)) return false;
+        const auto key = event->key();
+        const bool erase = key == Qt::Key_Backspace || key == Qt::Key_Delete;
+        const bool shift = event->modifiers() & Qt::ShiftModifier;
+        const bool command = event->modifiers() & (Qt::ControlModifier | Qt::MetaModifier);
+        const auto text = event->text();
+        const bool typed = !command && !text.isEmpty() && (text.at(0).isPrint() || key == Qt::Key_Tab);
+        const bool paste = event->matches(QKeySequence::Paste);
+        if (!editor->send(SCI_GETSELECTIONEMPTY)) {
+            if (erase || typed || paste || event->matches(QKeySequence::Cut)) widenSelectionOverImages();
+            return false;
+        }
+        if (event->matches(QKeySequence::Copy) || event->matches(QKeySequence::Cut))
+            return copyCaretImage(event->matches(QKeySequence::Cut));
+        const auto position = editor->send(SCI_GETCURRENTPOS);
+        const auto line = editor->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(position));
+        const bool readOnly = editor->send(SCI_GETREADONLY) != 0;
+        if (imageOn(line)) {
+            if (erase) { removeImage(line); return true; }
+            if ((key == Qt::Key_Right || key == Qt::Key_End) && !shift) {
+                if (line + 1 < editor->send(SCI_GETLINECOUNT)) {
+                    editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line + 1))));
+                } else if (!readOnly) {
+                    editor->send(SCI_DOCUMENTEND);
+                    editor->sends(SCI_ADDTEXT, static_cast<uptr_t>(eol().size()), eol().constData());
+                }
+                return true;
+            }
+            if (readOnly) return false;
+            if (key == Qt::Key_Return || key == Qt::Key_Enter) {
+                // Enter pushes the image down, as with a picture in a word processor.
+                const auto start = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line));
+                openLineAboveCaretImage();
+                editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(start + eol().size()));
+                return true;
+            }
+            // Text typed or pasted before an image goes on its own new line above it.
+            if (typed || paste) openLineAboveCaretImage();
+            return false;
+        }
+        // Erasing toward an image from a neighbouring line of text selects the image
+        // instead of merging that text into the image's reference.
+        const auto lineStart = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line));
+        const auto lineEnd = editor->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(line));
+        if (key == Qt::Key_Backspace && position == lineStart && lineEnd > lineStart && imageOn(line - 1)) {
+            editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line - 1))));
+            return true;
+        }
+        if (key == Qt::Key_Delete && position == lineEnd && lineEnd > lineStart && imageOn(line + 1)) {
+            editor->send(SCI_SETEMPTYSELECTION, static_cast<uptr_t>(editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(line + 1))));
+            return true;
+        }
+        return false;
+    }
+
+    // A selection that starts or ends inside an image line grows to cover that whole
+    // line, so deleting or replacing it removes the image rather than corrupting it.
+    void widenSelectionOverImages() {
+        if (!enabled || editor->send(SCI_GETSELECTIONS) != 1 || editor->send(SCI_SELECTIONISRECTANGLE)) return;
+        const auto anchor = editor->send(SCI_GETANCHOR);
+        const auto caret = editor->send(SCI_GETCURRENTPOS);
+        auto start = std::min(anchor, caret);
+        auto end = std::max(anchor, caret);
+        if (start == end) return;
+        const auto first = editor->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(start));
+        if (imageOn(first)) start = editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(first));
+        const auto last = editor->send(SCI_LINEFROMPOSITION, static_cast<uptr_t>(end));
+        if (imageOn(last) && end > editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(last)))
+            end = last + 1 < editor->send(SCI_GETLINECOUNT)
+                ? editor->send(SCI_POSITIONFROMLINE, static_cast<uptr_t>(last + 1))
+                : editor->send(SCI_GETLINEENDPOSITION, static_cast<uptr_t>(last));
+        if (start == std::min(anchor, caret) && end == std::max(anchor, caret)) return;
+        if (anchor <= caret) editor->send(SCI_SETSEL, static_cast<uptr_t>(start), end);
+        else editor->send(SCI_SETSEL, static_cast<uptr_t>(end), start);
     }
 
     void paint() {
@@ -177,6 +356,7 @@ public:
         painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
         const auto background = colorOf(editor->send(SCI_STYLEGETBACK, STYLE_DEFAULT));
         const auto foreground = colorOf(editor->send(SCI_STYLEGETFORE, STYLE_DEFAULT));
+        const auto selected = caretImageLine();
         for (const auto& placement : found) {
             painter.fillRect(placement.cover, background);
             const auto pixmap = pixmapFor(placement.path);
@@ -202,6 +382,7 @@ public:
         if (!enabled || event->button() != Qt::LeftButton) return false;
         const auto point = event->position().toPoint();
         const auto found = placements();
+        const auto selected = caretImageLine();
         for (auto it = found.rbegin(); it != found.rend(); ++it) {
             if (it->line == selected && it->grip.contains(point)) {
                 dragging = true;
@@ -213,14 +394,10 @@ public:
                 return true;
             }
             if (!it->image.contains(point)) continue;
-            selected = it->line;
             editor->send(SCI_GOTOPOS, it->start);
-            editor->viewport()->update();
+            syncSelection();
             return true;
         }
-        if (selected < 0) return false;
-        selected = -1;
-        editor->viewport()->update();
         return false;
     }
 
@@ -238,6 +415,7 @@ public:
             return true;
         }
         bool overGrip = false;
+        const auto selected = caretImageLine();
         for (const auto& placement : placements())
             if (placement.line == selected && placement.grip.contains(point)) overGrip = true;
         if (overGrip) {
@@ -310,15 +488,14 @@ public:
         return std::clamp((size.height() + textHeight - 1) / textHeight, 1, 4096);
     }
 
-    QString resolve(const QString& reference) const {
-        if (reference.isEmpty() || inlineImageReferenceIsRemote(reference)) return {};
-        const QFileInfo info(reference);
-        if (info.isAbsolute() || folder.isEmpty()) return QDir::cleanPath(reference);
-        const auto joined = QDir::cleanPath(QDir(folder).absoluteFilePath(reference));
-        return inlineImageReferenceIsRemote(joined) ? QString() : joined;
-    }
+    QString resolve(const QString& reference) const { return resolveInlineImage(folder, reference); }
 
 private:
+    QByteArray eol() const {
+        const auto mode = editor->send(SCI_GETEOLMODE);
+        return mode == SC_EOL_CR ? QByteArray("\r") : mode == SC_EOL_CRLF ? QByteArray("\r\n") : QByteArray("\n");
+    }
+
     static QColor colorOf(sptr_t value) {
         return QColor(static_cast<int>(value & 0xff), static_cast<int>((value >> 8) & 0xff),
             static_cast<int>((value >> 16) & 0xff));
@@ -354,7 +531,7 @@ private:
     QPoint dragOrigin;
     QSize dragStart;
     QSize dragSize;
-    sptr_t selected = -1;
+    sptr_t shown = -1;
     sptr_t dragLine = -1;
     bool dragging = false;
     bool reshaped = false;

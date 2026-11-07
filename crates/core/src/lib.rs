@@ -40,6 +40,7 @@ pub enum CommandId {
     Copy,
     Paste,
     PasteImage,
+    InsertTable,
     SelectAll,
     Find,
     FindNext,

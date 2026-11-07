@@ -12,7 +12,7 @@
   {"menu":"Edit/Auto-Completion","commands":["complete_word","calltip"]},
   {"menu":"Edit","commands":["column_editor","read_only"]},
   {"menu":"Edit/Comment","commands":["toggle_line_comment","add_line_comment","remove_line_comment","block_comment","block_uncomment"]},
-  {"menu":"Edit/Insert","commands":["date_time_short","date_time_long","date_time_custom"]},
+  {"menu":"Edit/Insert","commands":["insert_table","date_time_short","date_time_long","date_time_custom"]},
   {"menu":"Search","commands":["matching_brace","select_braces"]},
   {"menu":"Search","commands":["find","replace","find_next","find_previous","replace_all","find_in_files","replace_in_files","restore_disk_backup","cancel_search","go_to_line"]},
   {"menu":"Search","commands":["search_count","find_all_current","find_all_open"]},
