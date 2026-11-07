@@ -1,5 +1,14 @@
 # Agent Notes (notepad-star)
 
+## Building and installing the app
+
+When asked to build/install the app for everyday use, install a **release** build:
+`cargo run --locked -p xtask -- package-release`, never plain `package` (that is a
+debug/development build). Follow "Install a local build on macOS" in
+`packaging/RELEASE.md`: quit the app first, verify the manifest says
+`"profile": "release"`, install with `ditto`, then remove the unpacked
+`dist/macos-arm64-*` folders so only one copy exists in Spotlight.
+
 ## Repository hygiene (keep in mind for every change)
 
 This is a personal project published at `github.com/T-Gojo/notepad-star`.

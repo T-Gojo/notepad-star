@@ -42,6 +42,9 @@ overwrite an existing destination; move a previous package aside explicitly.
 
 Windows output: `dist\windows-x64\notepad-star.exe`.
 macOS output: the application bundle inside `dist\macos-arm64`.
+This is a development build for testing; to install the app for everyday use, build
+`package-release` and follow "Install a local build on macOS" in the
+[release procedure](../packaging/RELEASE.md).
 macOS bundles are **not notarized or signed for public distribution**.
 No Gatekeeper or Defender settings are changed.
 

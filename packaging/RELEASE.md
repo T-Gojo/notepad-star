@@ -36,6 +36,49 @@ the actual candidate executable passes its relocated smoke check. A failed
 staging directory is retained for inspection; existing packages are never
 overwritten. The installer refuses payload/profile/hash mismatches.
 
+## Install a local build on macOS
+
+`/Applications/Notepad Star.app` should always be a **release** build. `package`
+produces a debug, development-channel build (unoptimized, with the developer
+banner) meant only for testing; never install it as the everyday app.
+
+1. Quit Notepad Star normally (Cmd+Q) so its session and recovery data are saved.
+2. Move any previous outputs out of `dist/` (packaging refuses to overwrite) and build:
+
+   ```sh
+   cargo run --locked -p xtask -- package-release
+   ```
+
+   This builds the optimized binary and publishes `dist/macos-arm64-<version>`
+   only after the relocated smoke and UI checks pass.
+3. Confirm the manifest says release before installing:
+
+   ```sh
+   grep -E '"(profile|channel)"' dist/macos-arm64-*/release-manifest.json
+   # expect "profile": "release" and "channel": "release-candidate"
+   ```
+
+4. Replace the installed app. Use `ditto`, which preserves framework symlinks and
+   permissions:
+
+   ```sh
+   rm -rf "/Applications/Notepad Star.app"
+   ditto "dist/macos-arm64-<version>/Notepad Star.app" "/Applications/Notepad Star.app"
+   ```
+
+5. Delete the unpacked `dist/macos-arm64-*` folders afterwards. Spotlight indexes
+   every `.app` bundle, so leftover copies show up as duplicate "Notepad Star"
+   entries. The `dist/notepad-star-macos-arm64-<version>.zip` keeps the full
+   package. Keep only one installed copy; don't park backups in `~` or `/Applications`.
+
+The bundle identifier stays `org.notepadstar.rustpreview` (see below), so settings
+and recovery data carry over between builds. If the release build fails with
+`can't find crate` for a proc-macro (for example `rustversion` or `serde_derive`)
+or a "mis-aligned LINKEDIT" dlopen error, a stripped proc-macro dylib is corrupt.
+`[profile.release.build-override] strip = "none"` in `Cargo.toml` prevents this;
+if a compiler cache such as sccache already served a corrupt copy, run
+`cargo clean --release` and build again.
+
 ## Qualification before a publisher-signed build
 
 Complete the applicable entries in `release-gates.json` with **real evidence**,
