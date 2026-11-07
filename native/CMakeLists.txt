@@ -49,12 +49,22 @@ add_library(star-lexilla STATIC "${LEX}/src/Lexilla.cxx" ${LEXILLA_SOURCES})
 target_include_directories(star-lexilla PUBLIC "${LEX}/include" "${LEX}/lexlib" "${SCI}/include")
 target_compile_definitions(star-lexilla PRIVATE LEXILLA_NO_EXPORT)
 set_target_properties(star-lexilla PROPERTIES AUTOMOC OFF)
+if(NOT WIN32)
+  # LexUser.cxx includes <windows.h> for _itoa only; see compat/posix/windows.h.
+  target_include_directories(star-lexilla PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/compat/posix")
+endif()
 
 add_subdirectory(languages)
 add_subdirectory(function_list)
 add_library(star-pugixml STATIC "${UPSTREAM}/PowerEditor/src/pugixml/pugixml.cpp")
 target_include_directories(star-pugixml PUBLIC "${UPSTREAM}/PowerEditor/src/pugixml")
 set_target_properties(star-pugixml PROPERTIES AUTOMOC OFF)
+if(APPLE)
+  # pugixml is header-only here, so every consumer must see the same configuration.
+  # compat/apple/pugiconfig.hpp explains why charconv is disabled on macOS.
+  target_compile_options(star-pugixml PUBLIC
+    "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/compat/apple/pugiconfig.hpp")
+endif()
 add_library(star-shell STATIC "qt-shell/shell.cpp" "qt-shell/json_panel.cpp" "qt-shell/editor_tabs.cpp" "qt-shell/search_dialog.cpp" "editor/search.cpp" "editor/search_task.cpp" "editor/rich_export.cpp" "editor/project_panel.cpp" "editor/outline.cpp" "editor/macro_import.cpp" "editor/config_import.cpp" "editor/instance_channel.cpp")
 target_include_directories(star-shell PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}" "${STAR_CXX_INCLUDE}")
 target_link_libraries(star-shell PUBLIC star-pugixml star-function-list star-languages star-scintilla star-lexilla Qt6::Test Qt6::PrintSupport Qt6::Network)

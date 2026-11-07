@@ -581,7 +581,21 @@ fn native_windows_paths_round_trip_unpaired_utf16_without_loss() {
     assert_eq!(decoded.to_path().unwrap(), path);
 }
 
-#[cfg(unix)]
+// APFS and HFS+ refuse file names that are not valid UTF-8, so on macOS a package
+// cannot live under such a name; there only the path encoding itself is checked.
+#[cfg(target_os = "macos")]
+#[test]
+fn native_unix_paths_round_trip_non_utf8_without_touching_disk() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let path = PathBuf::from(OsString::from_vec(vec![
+        b'/', b't', b'm', b'p', b'/', b'x', 0xff,
+    ]));
+    let encoded = serde_json::to_vec(&NativePath::from_path(&path)).unwrap();
+    let decoded: NativePath = serde_json::from_slice(&encoded).unwrap();
+    assert_eq!(decoded.to_path().unwrap(), path);
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn native_unix_paths_round_trip_non_utf8_and_packages_work() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};

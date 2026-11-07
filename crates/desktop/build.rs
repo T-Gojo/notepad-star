@@ -1,6 +1,15 @@
 use std::{env, fs, path::PathBuf};
 
 fn main() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        // The Qt frameworks are linked through @rpath. star-native's build script adds
+        // the SDK's lib directory, but Cargo applies a dependency's rustc-link-arg only
+        // to that package's own binaries, so the executable must name the bundle's
+        // Frameworks directory itself. Development launches use DYLD_FRAMEWORK_PATH.
+        println!("cargo:rustc-link-arg-bins=-Wl,-rpath,@executable_path/../Frameworks");
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }

@@ -24,3 +24,9 @@ lto = "thin"
 codegen-units = 1
 strip = "debuginfo"
 panic = "abort"
+
+# Build scripts and proc-macros only run on the build machine, so stripping them gains
+# nothing. Xcode 27's strip also corrupts proc-macro dylibs ("mis-aligned LINKEDIT
+# string pool"), which fails the release build with "can't find crate" errors.
+[profile.release.build-override]
+strip = "none"

@@ -136,7 +136,11 @@ impl Environment {
     fn configure(&self, command: &mut Command) -> Result<()> {
         command.env("QT_ROOT", &self.qt).env("CMAKE", &self.cmake);
         if cfg!(target_os = "macos") {
-            command.env("MACOSX_DEPLOYMENT_TARGET", "13.0");
+            // The development binary links the SDK's frameworks through @rpath, which only
+            // a packaged bundle provides; packaged smoke tests remove this variable again.
+            command
+                .env("MACOSX_DEPLOYMENT_TARGET", "13.0")
+                .env("DYLD_FRAMEWORK_PATH", self.qt.join("lib"));
         }
         let mut paths = vec![self.qt.join("bin")];
         if let Some(parent) = self.cmake.parent() {
@@ -1010,8 +1014,9 @@ fn package(
         let mut deploy = Command::new(environment.qt.join("bin/macdeployqt"));
         deploy
             .arg(&bundle)
-            .arg("-always-overwrite")
-            .arg("-no-codesign");
+            // Qt 6.8's macdeployqt signs only when given -codesign=<identity>;
+            // it has no -no-codesign switch. The bundle stays unsigned.
+            .arg("-always-overwrite");
         environment.configure(&mut deploy)?;
         checked(&mut deploy)?;
     }

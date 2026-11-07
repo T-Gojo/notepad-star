@@ -42,6 +42,11 @@ if(STAR_LANGUAGES_BUILD_TESTS)
     "${STAR_LANGUAGES_UPSTREAM}/lexilla/lexlib"
     "${STAR_LANGUAGES_UPSTREAM}/scintilla/include")
   set_target_properties(star-language-test-lexers PROPERTIES AUTOMOC OFF)
+  if(NOT WIN32)
+    # LexUser.cxx includes <windows.h> for _itoa only; see native/compat/posix/windows.h.
+    target_include_directories(star-language-test-lexers PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/../compat/posix")
+  endif()
   add_executable(star-language-tests tests/catalog_tests.cpp)
   target_link_libraries(star-language-tests PRIVATE star-languages star-language-test-lexers)
   set_target_properties(star-language-tests PROPERTIES AUTOMOC OFF)
